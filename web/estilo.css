@@ -1,0 +1,147 @@
+/* Móvil primero, una columna. Sin framework: son 200 líneas y un framework
+   costaría más de lo que resuelve.
+
+   ⚠ Las dos reglas que no son estética y hay que respetar:
+     · `user-select: text` en todo: la especificación pide selección NATIVA, y
+       copiar y pegar tiene que funcionar como en cualquier página.
+     · el scroll horizontal de las tablas va CONTENIDO en la tabla, nunca en la
+       página — si no, leer una tabla mueve toda la conversación de lado. */
+
+:root {
+  --fondo: #14161a;
+  --panel: #1c1f26;
+  --burbuja: #2b5278;
+  --texto: #e6e8ec;
+  --tenue: #9aa3b2;
+  --borde: #2a2f3a;
+  --acento: #6aa9ff;
+  --aviso: #f0b429;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --fondo: #f6f7f9; --panel: #fff; --burbuja: #d7e7ff; --texto: #14161a;
+    --tenue: #5b6472; --borde: #e2e5ea; --acento: #1a63c9;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Nada de gestos que secuestren la pulsación larga. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ---------------------------------------------------------------- cabecera */
+header {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: .6rem;
+  padding: .7rem 1rem; padding-top: max(.7rem, env(safe-area-inset-top));
+  background: var(--panel); border-bottom: 1px solid var(--borde);
+}
+header h1 { font-size: 1.05rem; margin: 0; font-weight: 600; flex: 1; }
+header .atras {
+  background: none; border: 0; color: var(--acento);
+  font-size: 1rem; cursor: pointer; padding: .3rem .4rem;
+}
+header .estado { font-size: .78rem; color: var(--tenue); }
+
+main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+
+/* ------------------------------------------------------- lista de sesiones */
+.fila {
+  display: block; width: 100%; text-align: left;
+  background: var(--panel); color: inherit;
+  border: 1px solid var(--borde); border-radius: 12px;
+  padding: .8rem .9rem; margin-bottom: .6rem; cursor: pointer;
+}
+.fila .arriba { display: flex; justify-content: space-between; gap: .8rem; }
+.fila .nombre { font-weight: 600; }
+.fila .cuando, .fila .cuantos { color: var(--tenue); font-size: .8rem; white-space: nowrap; }
+.fila .extracto {
+  color: var(--tenue); font-size: .88rem; margin-top: .25rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- mensajes */
+.msg { margin: 0 0 .9rem; }
+.msg .quien { font-size: .72rem; color: var(--tenue); margin-bottom: .2rem; }
+
+/* Tuyo: burbuja a la derecha, acotada. Suyo: ancho completo, porque su
+   contenido es estructurado y una tabla en una burbuja estrecha no se lee. */
+.msg.usuario { display: flex; flex-direction: column; align-items: flex-end; }
+.msg.usuario .cuerpo {
+  background: var(--burbuja); border-radius: 14px 14px 4px 14px;
+  padding: .55rem .8rem; max-width: 85%;
+}
+.msg.claude .cuerpo { max-width: 100%; }
+.msg.sistema .cuerpo {
+  border-left: 3px solid var(--aviso); background: var(--panel);
+  padding: .5rem .7rem; border-radius: 0 8px 8px 0;
+  font-size: .9rem; color: var(--tenue);
+}
+
+/* La DIVISORIA de un `creset`: sin ella la web enseña un hilo que claude ya no
+   tiene en su contexto. */
+.corte {
+  display: flex; align-items: center; gap: .7rem;
+  margin: 1.4rem 0; color: var(--aviso); font-size: .78rem;
+}
+.corte::before, .corte::after {
+  content: ""; flex: 1; height: 1px; background: var(--aviso); opacity: .45;
+}
+
+/* --------------------------------------------------------- markdown dentro */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4 { line-height: 1.25; margin: 1.1em 0 .45em; }
+.md h1 { font-size: 1.3rem; } .md h2 { font-size: 1.17rem; }
+.md h3 { font-size: 1.06rem; } .md h4 { font-size: 1rem; color: var(--tenue); }
+.md p { margin: .55em 0; }
+.md ul, .md ol { margin: .5em 0; padding-left: 1.35em; }
+.md li { margin: .2em 0; }
+.md li > ul, .md li > ol { margin: .2em 0; }          /* anidadas, con su sangría */
+.md a { color: var(--acento); }
+.md blockquote {
+  margin: .6em 0; padding: .2em .9em;
+  border-left: 3px solid var(--borde); color: var(--tenue);
+}
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .88em; background: rgba(127,127,127,.18);
+  padding: .12em .35em; border-radius: 4px;
+}
+/* Bloques: monospace CON AJUSTE DE LÍNEA y sin scroll lateral. Son raros; no
+   merecen plegado ni botón de copiar propio. */
+.md pre {
+  background: rgba(127,127,127,.13); border: 1px solid var(--borde);
+  border-radius: 8px; padding: .7em .8em; margin: .6em 0;
+  white-space: pre-wrap; word-break: break-word; overflow-x: visible;
+}
+.md pre code { background: none; padding: 0; }
+
+/* ⚠ El scroll de una tabla va CONTENIDO aquí, no en la página. */
+.md .tabla { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: .6em 0; }
+.md table { border-collapse: collapse; font-size: .9rem; }
+.md th, .md td {
+  border: 1px solid var(--borde); padding: .35em .6em; text-align: left;
+  white-space: nowrap;
+}
+.md th { background: rgba(127,127,127,.12); }
+.md img { max-width: 100%; }
+
+/* ------------------------------------------------------------------ varios */
+.vacio, .cargando { color: var(--tenue); text-align: center; padding: 2rem 1rem; }
+.mas {
+  display: block; margin: 0 auto 1rem; padding: .5rem 1rem;
+  background: var(--panel); color: var(--acento);
+  border: 1px solid var(--borde); border-radius: 999px; cursor: pointer;
+}
+.error {
+  background: #4a1d1d; border: 1px solid #7a2e2e; color: #ffd7d7;
+  padding: .7rem .9rem; border-radius: 10px; margin-bottom: .8rem;
+}

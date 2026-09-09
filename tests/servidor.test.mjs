@@ -134,10 +134,10 @@ test('si el log todavía no existe lo DICE, en vez de fingir que está', async (
   }
 });
 
-test('una ruta desconocida da 404, no un 500 ni un cuelgue', async () => {
+test('una ruta desconocida de la API da 404 en JSON, no un 500 ni un cuelgue', async () => {
   const s = await levantar();
   try {
-    const { code, cuerpo } = await pedir(s.puerto, '/lo-que-sea');
+    const { code, cuerpo } = await pedir(s.puerto, '/api/lo-que-sea');
     assert.equal(code, 404);
     assert.match(cuerpo.error, /No existe/);
   } finally {
@@ -203,5 +203,40 @@ test('un id con ../ no se sale del directorio de mensajes', async () => {
     assert.equal(code, 200);
     assert.deepEqual(cuerpo.mensajes, [],
       'las barras se convierten en `_` al formar el nombre: no hay forma de salir');
+  } finally { await s.cerrar(); }
+});
+
+// ------------------------------------------------------------ 5. los estáticos
+
+test('sirve la app: index, el módulo y el vendor', async () => {
+  const s = await levantar();
+  try {
+    for (const [ruta, tipo] of [['/', 'text/html'], ['/app.js', 'text/javascript'],
+      ['/estilo.css', 'text/css'], ['/vendor/vue.esm-browser.prod.js', 'text/javascript']]) {
+      const r = await fetch(`http://${HOST}:${s.puerto}${ruta}`);
+      assert.equal(r.status, 200, `${ruta} tiene que servirse`);
+      assert.match(r.headers.get('content-type'), new RegExp(tipo));
+    }
+  } finally { await s.cerrar(); }
+});
+
+test('un `../` en un estático NO se sale de web/', async () => {
+  const s = await levantar();
+  try {
+    for (const ruta of ['/../package.json', '/../../etc/passwd',
+      `/${encodeURIComponent('../server/index.mjs')}`]) {
+      const r = await fetch(`http://${HOST}:${s.puerto}${ruta}`);
+      assert.equal(r.status, 404, `${ruta} no puede servirse`);
+    }
+  } finally { await s.cerrar(); }
+});
+
+test('una extensión desconocida no se sirve, aunque el fichero exista', async () => {
+  const s = await levantar();
+  try {
+    // Sin la lista blanca, un `.env` que alguien deje en `web/` por error saldría
+    // con un 200. La lista es lo que hace que eso no dependa de nadie.
+    const r = await fetch(`http://${HOST}:${s.puerto}/vendor/README.md`);
+    assert.equal(r.status, 404);
   } finally { await s.cerrar(); }
 });

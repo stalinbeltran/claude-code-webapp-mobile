@@ -24,12 +24,28 @@
 // falla antes de empezar; fallar a mitad no es una opción).
 
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { resolve, join, normalize, extname, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { listarSesiones, leerMensajes, PAGINA } from './datos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
+
+/** La raíz de los estáticos, deducida de dónde vive este fichero. Aquí SÍ vale
+ *  deducir: `web/` viaja en este mismo repo, así que no es un acoplamiento entre
+ *  piezas — es la pieza. Lo que no se deduce nunca es dónde está el log (R4). */
+const WEB = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'web');
+
+const TIPOS = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
+};
 
 /** 8010 lo tiene la web app de `foveal-vision` en esta misma máquina (medido el
  *  2026-09-09), así que el defecto es otro. */
@@ -108,8 +124,42 @@ export function crearServidor(raiz) {
       }));
     }
 
+    // Todo lo que no sea `/api/` es la app. Se sirve desde `web/`.
+    if (!url.pathname.startsWith('/api/')) return estatico(res, url.pathname);
+
     json(res, 404, { error: `No existe ${url.pathname}` });
   });
+}
+
+/**
+ * Sirve un fichero de `web/`.
+ *
+ * ⚠ El freno contra `../`: se normaliza la ruta y se comprueba que el resultado
+ * sigue DENTRO de `web/`. No basta con quitar `..` a mano —hay demasiadas formas
+ * de escribirlo— así que se compara la ruta ya resuelta, que es un hecho y no una
+ * heurística (R16). Y sólo se sirven extensiones conocidas: sin esa lista, un
+ * `.env` que alguien deje ahí por error se serviría con un 200.
+ */
+function estatico(res, ruta) {
+  const rel = normalize(decodeURIComponent(ruta)).replace(/^(\.\.[/\\])+/, '');
+  const f = ruta === '/' ? join(WEB, 'index.html') : join(WEB, rel);
+  const dentro = resolve(f).startsWith(WEB + '/') || resolve(f) === join(WEB, 'index.html');
+  const tipo = TIPOS[extname(f)];
+
+  if (!dentro || !tipo || !existsSync(f) || !statSync(f).isFile()) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    return res.end('No existe');
+  }
+  const cuerpo = readFileSync(f);
+  res.writeHead(200, {
+    'content-type': tipo,
+    'content-length': cuerpo.length,
+    // El vendor lleva su versión en el nombre del paquete, no en la URL, así que
+    // no se cachea: un armazón viejo servido desde caché es indistinguible de un
+    // servidor caído, y este proyecto se despliega con `git pull` + reiniciar.
+    'cache-control': 'no-store',
+  });
+  res.end(cuerpo);
 }
 
 /** Arranque de verdad. Se niega si no sabe dónde está el log. */
