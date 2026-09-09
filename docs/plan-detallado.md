@@ -205,7 +205,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ---
 
-## Fase 2 · Servidor, lectura y SSE
+## Fase 2 · Servidor, lectura y SSE — ✅ COMPLETA (2026-09-09)
 
 ### T2.1 · ✅ HECHA (2026-09-09) · El servidor, y el freno de dónde escucha
 
@@ -249,16 +249,17 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ✅ **Probado en vivo contra el log real** del coordinador, no sólo con el
   fixture.
 
-### T2.4 · `GET /api/eventos` (SSE) con `fs.watch` **y** sondeo
+### T2.4 · ✅ HECHA (2026-09-09) · `GET /api/eventos` (SSE) con `fs.watch` **y** sondeo
 
 - **qué** Mensajes nuevos y cambios de estado. `fs.watch` sobre `data/mensajes/`,
   **más un sondeo cada 2 s**.
 - ⚠ **El sondeo no es opcional**: `fs.watch` no es fiable en todos los sistemas de
   ficheros, y lo dice la propia especificación.
-- **prueba** que con el watcher desactivado a propósito, el mensaje llega igual
-  en ≤ 2 s.
+- **prueba** ✅ con el watcher apagado a propósito, y que el `visto` del latido
+  **no** cuenta como cambio (se reescribe cada 15 s: si contara, el móvil
+  recargaría solo toda la noche). Commit `0983660`.
 
-### T2.5 · El estado «pendiente» — ⚠ y lleva caducidad escrita al lado
+### T2.5 · ✅ HECHA (2026-09-09) · El estado «pendiente», con su caducidad
 
 - **qué** Sin streaming no hay señal de vida: si no se marca, la web **parece
   colgada**.
@@ -267,8 +268,11 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   `pgrep -f <uuid>`. Un marcador «pendiente» escrito a mano se queda colgado para
   siempre si el coordinador muere a mitad — que es exactamente el fallo del
   `.resume.lock` que este proyecto ya pagó (**regla 3 de escritura**).
-- **prueba** matar el coordinador con un turno en curso: al volver, **ninguna**
-  sesión aparece pendiente.
+- ✅ **Resuelto con un LATIDO** (`data/coordinador.json`), no con un marcador
+  propio: los turnos viven **dentro** de él, así que cuando vence se caen con él y
+  no queda ningún «pendiente» colgado que limpiar. Es la lección del
+  `.resume.lock`, aplicada por construcción.
+- **terminado** ✅ Commits `1106add` (coordinador) y `b91a082` (web).
 
 ### T2.6 · ✅ HECHA (2026-09-09) · El armazón de la web
 
@@ -320,12 +324,15 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **por qué** Sin la divisoria, la web enseña un contexto que claude ya no tiene
   — *«esa es exactamente la clase de confusión que cuesta media hora entender»*.
 
-### T2.10 · Que la web diga cuándo el coordinador no está (R2)
+### T2.10 · ✅ HECHA (2026-09-09) · Que la web diga cuándo el coordinador no está (R2)
 
 - **qué** Si el bot no está vivo, se dice. Enseñar el último log como si fuera de
   ahora es fallar a mitad, que es lo único que **R2** no admite.
-- **prueba** `systemctl stop telegram-coordinator` → la web lo anuncia; Telegram
-  sigue igual que hoy.
+- ✅ **Tres estados distintos**, porque confundirlos tiene coste: vivo · **sin
+  latido** (un coordinador que aún no tiene esta versión, no una caída) · **latido
+  vencido** (parado de verdad).
+- **terminado** ✅ **Verificado en vivo**: bot vivo → `vivo:true`; parado 48 s →
+  `vivo:false` con la edad; arrancado → `vivo:true`. Commit `b91a082`.
 
 ### T2.11 · ✅ HECHA (2026-09-09) · El servicio, declarado donde se declaran los servicios
 
