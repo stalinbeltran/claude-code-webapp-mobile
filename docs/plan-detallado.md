@@ -31,7 +31,7 @@ conversación se llama `Tema <threadId>`, que se lee del `sessionId` y no se pue
 perder. Con ellas se cayeron `src/temas.ts`, `data/temas.json`, la cadena de
 respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
-### T0.3 · ⚠ Meter este repo en el freno — medido hoy, y hoy miente
+### T0.3 · ✅ HECHA (2026-09-09) · Meter este repo en el freno
 
 - **dónde** `[coord] scripts/cerrable.mjs` (la lista declarada de repos)
 - **qué** Añadir `claude-code-webapp-mobile` a los siete repos que el freno
@@ -52,9 +52,21 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ⚠ El bucle **salta los repos que no están en disco**, así que añadirlo no rompe
   ninguna máquina que no lo tenga clonado — está escrito así en su propia
   cabecera.
-- **prueba** con un fichero sin commitear en este repo, `cerrable.mjs --breve`
-  **no** puede decir 🟢.
-- **terminado cuando** el falso verde de arriba ya no se reproduce.
+- **prueba** ✅ `tests/cerrable-repos.test.mjs`, dos tests que fijan la **regla** y
+  no la lista: (1) trabajo sin commitear aquí impide el verde y sale **nombrado**
+  —**falla con el código anterior**, comprobado revirtiendo la lista—; (2) un repo
+  declarado que no está clonado no da ni aviso ni duda, que es lo que hace seguro
+  añadir uno sin romper las máquinas que no lo tienen.
+- **terminado** ✅ Suite 228/228, y comprobado **en vivo** el mismo día:
+
+  ```
+  (con un fichero sin commitear aquí)
+  🔴 **NO CERRAR** — 1 cambio(s) sin empujar en claude-code-webapp-mobile
+  (tras borrarlo)
+  🟢 **CERRABLE** — nada alquilado, nada corriendo, todo empujado
+  ```
+
+  Commit: `83e703b` en `telegram-coordinator`.
 
 ---
 
