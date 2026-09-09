@@ -122,9 +122,12 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   campos, lo que el fichero **garantiza** (5 cosas), lo que **no** garantiza, y
   por qué la ruta sale de `DATA_DIR` y nunca de `'data'`. Este repo lo **enlaza**.
 
-### T1.3 · Publicar la entrada y la salida
+### T1.3 · ✅ HECHA (2026-09-09) · Publicar la entrada y la salida
 
-- **dónde** `[coord] src/orchestrator.ts` (entrada) y `src/bot.ts::atender()` (salida)
+- **dónde** ⚠ `[coord] src/orchestrator.ts`, **las dos**, corrigiendo el plan: es
+  donde está el `executor` con su campo `registrar` y donde las replies siguen
+  **enteras** (el troceo a 4000 vive después, en `send()`). Un sitio en vez de dos,
+  y `bot.ts` no necesita saber que el log existe.
 - **qué**
   - `autor:'usuario'` con el texto **ya ensamblado por el buffer**, no los trozos:
     los trozos son del transporte, igual que el troceo de salida.
@@ -139,10 +142,18 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   dato, sin tocar código ni reiniciar.
 - **Y con eso desaparece el problema del tamaño**: sin `shell` en el log, nadie
   vuelca megabytes. El tope por mensaje se queda igual, por si acaso.
-- **prueba** en `tests/entrada-telegram.test.mjs`, que ya recorre el camino real
-  de un mensaje: tras un mensaje, el JSONL tiene exactamente dos líneas.
-- **terminado cuando** una respuesta que en Telegram llegó en 4 trozos está en
-  **una sola línea** del log.
+- **prueba** ✅ 5 tests en `tests/mensajes-orquestador.test.mjs`: que un ejecutor
+  con el campo deja entrada **y** respuesta en orden · que **uno sin el campo no
+  deja nada** (es lo que hace cumplir «sólo `c`») · que un fallo se anota como
+  `sistema` y no como si lo hubiera dicho claude · que el `origen` viaja entero ·
+  que dos temas no se mezclan.
+- **terminado** ✅ Suite 243/243, `tsc --noEmit` OK. Commit `a2d5cd8`.
+- ⚠⚠ **El bot no tiene este código hasta que se reinicie** (corre con `tsx`, sin
+  build), y **no se puede reiniciar desde un mensaje de Telegram**: el servicio es
+  `KillMode=control-group` y el `claude` que atiende el mensaje vive en ese
+  cgroup — comprobado el 2026-09-09 leyendo `/proc/self/cgroup` desde esta misma
+  sesión, que salió `/system.slice/telegram-coordinator.service`. Hay que
+  reiniciarlo **desde otro tema** con `shell`, o desde la máquina.
 
 ### T1.4 · ✅ HECHA (2026-09-09) · `data/mensajes/` fuera de git
 
