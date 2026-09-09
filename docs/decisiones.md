@@ -4,9 +4,8 @@ Las 13 preguntas de este proyecto, **con la respuesta del dueño** (2026-09-09).
 Se conserva la pregunta y el porqué: una decisión sin su motivo se revierte sola
 la primera vez que estorba.
 
-**Estado: 12 de 13 cerradas.** Queda abierta **[P9](#p9--el-nombre-de-cada-tema-en-la-app)**,
-que es un malentendido por aclarar y de la que depende si la **fase 0 existe o
-desaparece**.
+✅ **Estado: las 13 cerradas** (2026-09-09). No queda nada que decidir para
+empezar a escribir código.
 
 | # | Decisión |
 |---|---|
@@ -16,9 +15,9 @@ desaparece**.
 | [P4](#p4--qué-ejecutores-entran-en-el-log) | ✅ **sólo `c`** — implementado como **dato**, no cableado |
 | [P5](#p5--se-redacta-el-log) | ✅ **sí, se redacta** |
 | [P6](#p6--por-dónde-entra-un-mensaje-de-la-web) | ✅ **fichero de entrada + eco a Telegram**, para ver la misma conversación en los dos sitios |
-| [P7](#p7--los-títulos-de-los-temas) | ⏸ depende de P9 |
+| [P7](#p7--los-títulos-de-los-temas) | ✅ **no hay nada que respaldar**: lo resuelve P9 |
 | [P8](#p8--sembrar-el-historial-viejo) | ✅ **no** |
-| [P9](#p9--el-nombre-de-cada-tema-en-la-app) | ⚠ **ABIERTA** — malentendido por aclarar |
+| [P9](#p9--el-nombre-de-cada-tema-en-la-app) | ✅ **números y ya** — se borra la fase 0 entera |
 | [P10](#p10--frontend) | ✅ **Vue ESM sin bundler**, como la especificación |
 | [P11](#p11--dónde-vive-cada-documento-y-el-nombre-del-repo) | ✅ decidido: todo a git, especificación a `docs/`, nombre del repo **se queda** |
 | [P12](#p12--en-qué-máquinas-va) | ✅ **sólo `dev`** |
@@ -141,11 +140,13 @@ lo mismo, el espejo miente»*), así que se mantiene y se concreta:
 
 ## P7 · Los títulos de los temas
 
-⏸ **Depende de [P9](#p9--el-nombre-de-cada-tema-en-la-app).** La respuesta del
-dueño —*«ponerle nombre distinto y numerado, y listo; si eso no es suficiente lo
-resolvemos después de usarlo»*— apunta a que **no quiere maquinaria de títulos**,
-lo que haría desaparecer la fase 0 entera. Pero eso hay que confirmarlo, porque
-es justo la parte que no se puede recuperar más tarde.
+✅ **Deja de existir el problema.** Con [P9](#p9--el-nombre-de-cada-tema-en-la-app)
+resuelto en «números y ya», **no hay `data/temas.json`**: no hay ningún dato
+irrecuperable que respaldar, ni eventos que capturar, ni cadena de respaldo.
+
+Era el único punto del proyecto que chocaba con la **R9** (*un dato que no se
+puede re-derivar y no se guarda, se pierde*). Se resolvió por el camino más
+barato de los posibles: **no producir el dato**.
 
 ## P8 · ¿Sembrar el historial viejo?
 
@@ -153,13 +154,28 @@ es justo la parte que no se puede recuperar más tarde.
 
 ## P9 · El nombre de cada tema en la app
 
-⚠ **ABIERTA — y es la única que queda.** Hubo un malentendido: no hablo del
-título del **chat** (el grupo, que efectivamente es fijo), sino del nombre de cada
-**TEMA** dentro de ese grupo. Cada tema es una sesión y será **una conversación en
-la lista de la app**, así que la app necesita algo que poner en esa lista.
+**Decisión: números y ya.** Cada conversación de la lista se llama
+**`Tema <threadId>`**, y ese número es un **hecho de Telegram** — no se guarda, se
+lee del propio `sessionId` (**R16**: la identidad la da un dato comprobable). No
+se puede perder ni desincronizar, y no hay nada que mantener.
 
-Las dos salidas están escritas en el mensaje que acompaña a este documento; de la
-respuesta depende si la **fase 0 se hace o se borra**.
+**Lo que esto borra**, y es la mitad del valor de la decisión:
+
+| Se cae | Por qué existía |
+|---|---|
+| los handlers de `forum_topic_created` / `forum_topic_edited` | era la única forma de saber el nombre de un tema |
+| `src/temas.ts` y `data/temas.json` | dónde se guardaba |
+| la cadena de respaldo de tres niveles | qué poner cuando no hay título |
+| su choque con la allowlist | quién genera esos eventos |
+| **la urgencia del proyecto** | los renombrados se perdían mientras nadie escuchara |
+
+⚠ **Y lo que se acepta a cambio, dicho claro:** con varios temas abiertos, la
+lista dirá `Tema 2` y `Tema 438` y tendrás que recordar cuál es cuál.
+
+⚠ **Es reversible como mecanismo, pero no hacia atrás.** Si algún día quieres
+nombres legibles, se añade sin rehacer nada de lo anterior — pero los temas que ya
+existan **no traerán su nombre**: habrá que renombrar cada uno una vez, con el bot
+vivo, para que llegue el evento. Es barato, y conviene saberlo antes que después.
 
 ## P10 · Frontend
 

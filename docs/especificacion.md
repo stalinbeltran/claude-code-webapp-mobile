@@ -1,6 +1,17 @@
 # Web de lectura para el ejecutor `c` — propuesta
 
-Estado: **propuesta, no implementada**. Escrita para vivir en `docs/`.
+Estado: **propuesta, no implementada**.
+
+> ⚠ **Este documento es la FUENTE, y no se reescribe.** Lo que está decidido hoy
+> —incluidas las tres cosas que se apartaron de aquí— vive en
+> [`decisiones.md`](decisiones.md), que es el documento de **estado**. Si los dos
+> se contradicen, manda aquél.
+>
+> Las tres, para no leer esto de más: el servidor va **aparte** y no dentro del
+> proceso del coordinador (P1); el log registra **sólo `c`**, y por un campo de su
+> JSON (P4); y **no se capturan los títulos de los temas** —la sección «Títulos de
+> sesión» de más abajo quedó descartada—, porque cada conversación se llama
+> `Tema <threadId>` (P9).
 
 ## El problema
 

@@ -7,11 +7,10 @@ una web de lectura (y luego de escritura) para las conversaciones del ejecutor
 **Estado: propuesta. Nada implementado, ninguna línea de código escrita.**
 Escrito el 2026-09-09.
 
-✅ **Las decisiones ya están tomadas** (12 de 13): viven en
-[`decisiones.md`](decisiones.md), con el motivo de cada una. Este plan se lee
-con ellas al lado — donde decía «hay que decidir», ahora dice qué se decidió.
-⚠ La única abierta es **P9** (el nombre de cada tema en la app), y de ella
-depende que la **fase 0 exista o se borre**.
+✅ **Las 13 decisiones están tomadas** (2026-09-09) y viven en
+[`decisiones.md`](decisiones.md), con el motivo de cada una. Este plan se lee con
+ellas al lado — donde decía «hay que decidir», ahora dice qué se decidió. **No
+queda nada pendiente para empezar a escribir código.**
 
 **Cómo se usa este documento.** Contesta *qué se construye y en qué orden*. El
 *cómo*, tarea por tarea, está en [`plan-detallado.md`](plan-detallado.md). Lo
@@ -82,9 +81,11 @@ discutir**, porque se comprobaron.
    hizo, y por el mismo motivo, en `scripts/errores.mjs`: *«se escribe el FICHERO
    y no se llama al API porque "el API no responde" es exactamente el error que
    más interesa registrar»*.
-3. **El título del tema sólo llega por evento**: verificado arriba. Y por tanto
-   la prioridad de la fase 1 —empezar a escuchar cuanto antes— está bien puesta:
-   es lo único de todo el proyecto que **no se puede reconstruir más tarde**.
+3. **El título del tema sólo llega por evento**: verificado arriba. La
+   especificación lo detectó y le puso la prioridad correcta. ⚠ Y esa rama acabó
+   **descartada** por [P9](decisiones.md#p9--el-nombre-de-cada-tema-en-la-app), que
+   la resolvió por el camino más barato: no producir el dato. Cada conversación se
+   llama `Tema <threadId>`, que se lee del `sessionId`.
 4. **JSONL y no SQLite**: coherente con `data/` y con `errores.mjs`, y para un
    usuario no hay problema de rendimiento que justifique un motor.
 
@@ -284,9 +285,7 @@ telegram-coordinator/            ← el PRODUCTOR del log
   src/mensajes.ts                publicar() + formato + purga   (nuevo)
   src/orchestrator.ts            publicar(autor:'usuario') al entrar
   src/bot.ts                     publicar(autor:'claude') ANTES de trocear
-                                 + handlers de forum_topic_created/edited
   data/mensajes/*.jsonl          (a .gitignore)
-  data/temas.json                ⚠ ver P7: no sobrevive a rehacer la máquina
   docs/log-de-mensajes.md        EL FORMATO, que es el contrato entre las piezas
   tests/mensajes.test.mjs
 
@@ -345,23 +344,16 @@ está el log, con fallback a `COORD_HOME`, nunca a `'data'`.
 El orden es el de la especificación y no se cambia: cada fase entrega algo que se
 puede usar y verificar, y **la fase 2 ya resuelve el problema que originó todo**.
 
-### Fase 0 · Sólo el handler de títulos — ⚠ va primero y va solo
+### Fase 0 · El freno — ⛔ lo demás de esta fase se borró
 
-**Es lo único de todo el proyecto con reloj.** El título de un tema **no se puede
-consultar**: no existe `getForumTopic` (verificado en § 0). Sólo llega en
-`forum_topic_created` y `forum_topic_edited`. Cada renombrado que ocurra antes de
-que el bot escuche **se pierde y no se recupera**.
+Era *«capturar los títulos de los temas, y va primero porque es lo único con
+reloj»*. **[P9](decisiones.md#p9--el-nombre-de-cada-tema-en-la-app) la eliminó el
+2026-09-09**: los nombres se derivan del `sessionId` (`Tema 438`), así que no hay
+evento que escuchar ni dato que perder — y **el proyecto se queda sin ninguna
+urgencia**.
 
-La especificación ya lo dice y lo mete dentro de la fase 1. Aquí se saca a una
-fase propia de un commit, porque no depende de ninguna decisión pendiente: es
-`src/bot.ts` en las dos opciones de reparto, y **se puede desplegar hoy** mientras
-se responden las preguntas.
-
-- **Entrega**: `data/temas.json` con `{sesión: título}`, y nada que lo lea aún.
-- **Se verifica**: crear un tema, renombrarlo, `cat data/temas.json`.
-- **Si el proyecto se cancela mañana**, esto ya vale: los títulos son un dato que
-  hoy se está perdiendo.
-- ⚠ **Depende de [P7](decisiones.md)** para decidir si además se respalda.
+Queda sólo **T0.3**, que nunca fue de títulos: meter este repo en la lista de
+`cerrable.mjs`, porque hoy el freno da 🟢 con trabajo sin empujar aquí dentro.
 
 ### Fase 1 · `publicar()` y el log
 
@@ -417,7 +409,7 @@ cumplimiento.
 
 | Fase | Freno | Pruebas |
 |---|---|---|
-| 0 | ⚠ **este repo entra en la lista de `cerrable.mjs`** (T0.3): hoy no está, y por eso el freno da 🟢 «todo empujado» con trabajo sin commitear aquí — medido el 2026-09-09 | que un `forum_topic_edited` actualiza el título y que un tema sin evento cae al respaldo |
+| 0 | ⚠ **este repo entra en la lista de `cerrable.mjs`** (T0.3): hoy no está, y por eso el freno da 🟢 «todo empujado» con trabajo sin commitear aquí — medido el 2026-09-09 | que con un fichero sin commitear aquí, el freno **no** puede decir 🟢 |
 | 1 | — | `tests/mensajes.test.mjs`: el formato, que se publica **entero** antes de trocear, y que `publicar()` **nunca lanza** |
 | 2 | ejecutor `cweb` (`url`/`estado`/`parar`) desde Telegram | que escucha en `127.0.0.1` y **no** en `0.0.0.0` · que sin el coordinador vivo la web **lo dice** en vez de enseñar un log viejo como si fuera de ahora |
 | 3 | `cweb parar` + revisar `TRABAJOS` de `cerrable.mjs` | el cerrojo: dos entradas a la vez en el mismo tema no producen dos `claude --resume` del mismo uuid |
@@ -434,7 +426,6 @@ cumplimiento.
 | 3 | Dos `claude --resume` del mismo uuid | conversación corrupta, trabajo perdido | fase 3, cerrojo antes del botón |
 | 4 | El log se parte entre `data/` de casa y el de un workspace | mitad de la conversación invisible, **sin ningún error** | fase 1, una sola función para resolver `DATA_DIR` |
 | 5 | Un fallo de la web tumba el polling | error 409, el bot deja de responder | estructura (opción B) o disciplina (opción A) |
-| 6 | Se pierden los títulos de los temas | irrecuperable: no se puede preguntar | fase 0, hoy |
 | 6b | El freno no vigila este repo | 🟢 «cerrable» con trabajo sin empujar: **permiso para destruir la máquina**. Ya reproducido hoy | T0.3, una línea |
 | 7 | Tailscale se pierde al rehacer la máquina | la web deja de ser alcanzable, y el síntoma parece del servidor | fase 4, en el repo del lanzador |
 
@@ -447,12 +438,10 @@ cumplimiento.
   archivadas (22 ficheros, 28 MB, medido hoy en
   `foveal-vision-data/conversaciones/`), y **no está planificado** — es
   **[P8](decisiones.md)**.
-- **Un renombrado con el bot caído se pierde**, igual que dice la especificación.
-  ⚠ Hay una vía **no comprobada** que podría recuperar temas viejos: cuando un
-  mensaje responde al mensaje de creación del tema, la Bot API rellena
-  `reply_to_message.forum_topic_created`. Si funciona, bastaría con responder una
-  vez al primer mensaje de cada tema viejo. **Leído del tipado de
-  `@grammyjs/types`, NO comprobado contra Telegram.**
+- **La lista de conversaciones dirá `Tema 2` y `Tema 438`**, no nombres
+  legibles. Es lo decidido en P9 y es reversible como mecanismo — pero los temas
+  que ya existan **no traerán su nombre**: habría que renombrar cada uno una vez,
+  con el bot vivo.
 - **No mide el volumen.** La purga (30 días / 300 mensajes) sale de la
   especificación, no de una medida: el journal de esta máquina no sirve porque el
   droplet se rehizo hoy. Se revisa cuando haya una semana de log.

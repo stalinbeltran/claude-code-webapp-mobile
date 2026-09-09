@@ -21,44 +21,15 @@ respuesta. Las demás sí.
 
 ---
 
-## Fase 0 · Los títulos, hoy y solas
+## Fase 0 · El freno, antes de nada
 
-> Único trabajo con reloj: lo que no se capture, no se puede recuperar.
+> Una tarea suelta, de una línea, que no depende de ninguna otra.
 
-⏸⏸ **T0.1 y T0.2 EN SUSPENSO desde el 2026-09-09, esperando
-[P9](decisiones.md#p9--el-nombre-de-cada-tema-en-la-app).** El dueño pidió
-nombres «distintos y numerados» y fijos, lo que apunta a que esta fase **no hace
-falta** y se borra entera. Se deja escrita —y no se ejecuta— hasta aclararlo,
-porque es la única del proyecto cuyo coste crece mientras se espera.
-**T0.3 va igual**, se decida lo que se decida: no tiene nada que ver con títulos.
-
-### T0.1 · Escuchar `forum_topic_created` y `forum_topic_edited`
-
-- **dónde** `[coord] src/bot.ts` — dos handlers nuevos; `src/temas.ts` (nuevo)
-  para leer/escribir `data/temas.json`.
-- **qué** Guardar `{ "<chatId>_<threadId>": { titulo, fuente: "telegram", visto } }`.
-  `data/temas.json` es **estado**, se reescribe entero (**R8**); no es historial.
-- ⚠ **el detalle que muerde**: el middleware de allowlist (`src/bot.ts:191-196`)
-  corta **todo** lo que no venga de un id permitido, y un evento de servicio lo
-  genera **quien creó o renombró el tema**. Si algún día lo hace otra persona (o
-  el propio bot), el título se pierde en silencio. → **[P9](decisiones.md)**
-- **prueba** `tests/temas.test.mjs`: un `forum_topic_edited` pisa el título
-  anterior; un tema sin evento no aparece en el fichero.
-- **terminado cuando** renombrar un tema en Telegram cambia la línea de
-  `data/temas.json` sin reiniciar nada.
-
-### T0.2 · La cadena de respaldo, y que se sepa de dónde viene el título
-
-- **dónde** `[coord] src/temas.ts`
-- **qué** `tituloDe(sesión)` → 1) el de Telegram si se vio el evento; 2) la
-  primera línea del primer mensaje del usuario, recortada a ~40 caracteres;
-  3) `Tema <id>`. **Devuelve también `fuente`**: la especificación exige
-  distinguir *«título heredado»* de *«título de Telegram»*, o un nombre viejo
-  parece un fallo.
-- ⚠ El nivel 2 **necesita el log de la fase 1**. Hasta entonces, salta al 3.
-- **prueba** los tres niveles, y que `fuente` sale correcta en cada uno.
-- **terminado cuando** un tema sin evento y sin log da `Tema <id>` con
-  `fuente: "id"`, y no un `undefined`.
+⛔ **T0.1 y T0.2 (capturar los títulos de los temas) SE BORRARON el 2026-09-09**,
+al decidirse [P9](decisiones.md#p9--el-nombre-de-cada-tema-en-la-app): cada
+conversación se llama `Tema <threadId>`, que se lee del `sessionId` y no se puede
+perder. Con ellas se cayeron `src/temas.ts`, `data/temas.json`, la cadena de
+respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ### T0.3 · ⚠ Meter este repo en el freno — medido hoy, y hoy miente
 
@@ -201,8 +172,11 @@ porque es la única del proyecto cuyo coste crece mientras se espera.
 
 ### T2.2 · `GET /api/sesiones`
 
-- **qué** id, título (con su `fuente`), hora del último mensaje, y si está
-  pendiente. Ordenadas por actividad.
+- **qué** id, nombre, hora del último mensaje, y si está pendiente. Ordenadas por
+  actividad.
+- ✅ **El nombre se DERIVA, no se guarda** (P9): `Tema <threadId>`, sacado del
+  propio `sessionId`. Ni fichero, ni evento, ni `fuente` que distinguir — y por
+  tanto nada que pueda desincronizarse (**R16**).
 - **prueba** contra el fixture, sin coordinador vivo.
 
 ### T2.3 · `GET /api/sesiones/:id/mensajes?desde=<id>`
@@ -268,10 +242,9 @@ porque es la única del proyecto cuyo coste crece mientras se espera.
 - **prueba** un test que renderice `<img src=x onerror=...>` del fixture y
   compruebe que sale **escapado**.
 
-### T2.9 · La divisoria del `creset` y los títulos heredados
+### T2.9 · La divisoria del `creset`
 
-- **qué** Una línea visible donde `claude-reset.mjs` cortó la conversación, y una
-  marca distinta para el título que **no** vino de Telegram.
+- **qué** Una línea visible donde `claude-reset.mjs` cortó la conversación.
 - **por qué** Sin la divisoria, la web enseña un contexto que claude ya no tiene
   — *«esa es exactamente la clase de confusión que cuesta media hora entender»*.
 

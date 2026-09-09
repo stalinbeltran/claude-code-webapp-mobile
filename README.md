@@ -13,8 +13,8 @@ cae, el bot funciona exactamente igual.
 
 ## Estado, a 2026-09-09
 
-**Nada implementado: sólo documentos.** Las decisiones de diseño ya están
-tomadas (12 de 13). En orden de lectura:
+**Nada implementado: sólo documentos.** Las **13 decisiones de diseño están
+tomadas**, así que no queda nada pendiente para empezar. En orden de lectura:
 
 | Documento | Qué contesta |
 |---|---|
@@ -35,9 +35,8 @@ tomadas (12 de 13). En orden de lectura:
 - **Sobrevive a que se destruya el `dev`** y se relanza desde el mini, con el
   mismo mecanismo que ya usa `foveal-vision-web`.
 
-⚠ **Queda una pregunta abierta** —el nombre de cada tema en la lista de
-conversaciones— y de ella depende que la fase 0 se haga o se borre. Está en
-[`docs/decisiones.md`](docs/decisiones.md#p9--el-nombre-de-cada-tema-en-la-app).
+- **Cada conversación se llama `Tema <threadId>`**, derivado del `sessionId`: no
+  hay títulos que capturar, que guardar ni que perder.
 
 ⚠ Este repo **no se puede usar solo**: la mitad del trabajo son cambios dentro
 de `telegram-coordinator`, que es quien tiene el orquestador, el log y el
