@@ -70,7 +70,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ---
 
-## Fase 1 · `publicar()` y el log
+## Fase 1 · `publicar()` y el log — ✅ COMPLETA (2026-09-09)
 
 ### T1.1 · ✅ HECHA (2026-09-09) · El módulo del log
 
@@ -162,7 +162,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   Claude dijo, incluidas salidas de shell y rutas.
 - **terminado** ✅ En `.gitignore` junto a `data/buffer/` y `data/repeticiones/`.
 
-### T1.5 · Que los desacoplados escriban también
+### T1.5 · ✅ HECHA (2026-09-09) · Que los desacoplados escriban también
 
 - **dónde** `[coord] scripts/notify.mjs`, `repetir-bucle.mjs`,
   `claude-resumer.mjs`, `claude-reset.mjs`
@@ -176,19 +176,32 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ⚠ `claude-reset.mjs` publica un `sistema` de **corte de conversación**: es la
   línea divisoria del `creset` que la web necesita para no enseñar un contexto
   que claude ya no tiene.
-- **prueba** `tests/notify.test.mjs` ya tiene la costura (`TELEGRAM_API_BASE`):
-  con la API simulada caída, el JSONL **igual** tiene su línea.
-- **terminado cuando** un `repetir` deja sus vueltas en el log con
-  `origen:"repetir"`.
+- ✅ **La regla que evita duplicar**: cada quien anota **su** contenido.
+  `repetir-bucle` anota la frase (que es tuya) y deja que la respuesta la anote el
+  aviso que ya la lleva dentro.
+- ✅ **`claude-resumer` gana algo que no tenía**: su `tg()` **no mira la respuesta
+  de la API**, así que un 400 por hilo borrado se perdía del todo. Ahora al menos
+  queda el rastro en disco.
+- **prueba** ✅ 5 tests en `tests/mensajes-desacoplados.test.mjs`, incluido el de
+  la API caída: el rastro queda igual.
+- ⚠ **Y un fallo que cazó la suite**: el arnés de `tests/repetir.test.mjs` copia
+  una **lista declarada** de scripts a un temporal, y `mensajes.mjs` no estaba —
+  los cuatro tests del motor se pusieron en rojo con `MODULE_NOT_FOUND`. Es el
+  mismo patrón que «el repo estaba clonado; lo que faltaba era el **fichero**»,
+  esta vez dentro de un test. La lista lleva ahora su aviso.
+- **terminado** ✅ Commit `52fdd9a`.
 
-### T1.6 · El fixture, uno y compartido
+### T1.6 · ✅ HECHA (2026-09-09) · El fixture, uno y compartido
 
 - **dónde** `[coord] tests/fixtures/mensajes/ejemplo.jsonl` y `[web]` la copia
 - **qué** Un fichero de ejemplo con todos los casos: usuario, claude, sistema,
   un mensaje recortado, un `creset`. Es lo que hace que el contrato se pueda
   probar **desde los dos lados** (**R6**).
-- **terminado cuando** `diff` entre las dos copias no da nada, y hay un test en
-  cada repo que lo lee.
+- ✅ **Generado, no escrito a mano**: lo produjo `scripts/mensajes.mjs`. Un
+  fixture inventado sólo prueba que alguien supo escribir JSON.
+- **terminado** ✅ `diff` limpio entre las dos copias, y 4 tests en
+  `tests/mensajes-fixture.test.mjs` del lado del productor. El del consumidor
+  llega con su servidor (T2.2). Commit `665052a`.
 
 ---
 
