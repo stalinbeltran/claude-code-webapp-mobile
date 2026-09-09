@@ -433,7 +433,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ## Fase 4 · PWA, purga y acceso
 
-### T4.1 · Purga
+### T4.1 · ✅ HECHA (2026-09-09) · Purga
 
 - **qué** 30 días **o** 300 mensajes por sesión, lo que llegue primero. Al
   arrancar y una vez al día, reescribiendo el fichero.
@@ -441,14 +441,27 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ⚠ **El número no está medido**: sale de la especificación. El journal de esta
   máquina no sirve para dimensionarlo (2 mensajes en 7 días, droplet rehecho hoy).
   Se revisa con una semana de log real.
-- **prueba** que no borra lo que está dentro de la ventana, y que reescribir no
-  pierde la línea que se estaba añadiendo.
+- ✅ **Corre al arrancar y cada 24 h.** Al arrancar y no sólo cada día porque
+  estas máquinas se rehacen constantemente: un ciclo que sólo dispara mañana puede
+  no dispararse nunca.
+- ⚠⚠ **La carrera con los desacoplados está resuelta**: se escribe en un temporal
+  y antes de renombrar se comprueba que el original no ha crecido. Si creció, esa
+  purga se salta — es idempotente. Tiene test **con costura** para provocar el
+  append a propósito.
+- **terminado** ✅ 7 tests, las dos caras (que borre y que **no se pase**).
+  Commit `80bd393`.
 
-### T4.2 · PWA: manifest, icono y service worker
+### T4.2 · ✅ HECHA (2026-09-09) · PWA: manifest, icono y service worker
 
 - **qué** Instalable en la pantalla de inicio. El service worker cachea **sólo el
   armazón**. **Sin push**: Telegram ya avisa.
-- ⚠ **Exige HTTPS y origen estable**, que es lo que ata esta tarea a T4.3.
+- ⚠ **Exige HTTPS y origen estable**, que es lo que ata esta tarea a T4.3: el
+  código está, pero **no se puede instalar de verdad hasta que haya Tailscale**.
+- ⚠⚠ **El service worker va RED PRIMERO.** El resto del servidor manda
+  `no-store` a propósito, y un SW que sirviera de caché por defecto reintroduce
+  el fallo que eso evita: un armazón viejo es indistinguible de un servidor
+  caído. Hay un test que comprueba el **orden real en el código**.
+- **terminado** ✅ 5 tests. Commit `9ddca6e`.
 
 ### T4.3 · Tailscale en esta máquina
 
