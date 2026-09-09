@@ -11,9 +11,10 @@ implementado.** Escrito el 2026-09-09.
   no se pudo automatizar y eso es deuda declarada.
 - **terminado cuando** — el criterio, escrito **antes** de hacerlo (R13).
 
-⚠ Las tareas marcadas `[B]` sólo existen si se elige la opción B del reparto; las
-`[A]`, sólo con la A. El resto son iguales en las dos. Ver
-**[P1](preguntas-abiertas.md)**.
+✅ **Decidido el 2026-09-09 (P1): el reparto es el B** — el log en el
+coordinador, el servidor y el frontend aquí, con unidad propia. Las tareas `[B]`
+van; las `[A]` se descartaron y se dejan escritas sólo para que se vea qué se
+consideró. Todas las decisiones, en [`decisiones.md`](decisiones.md).
 
 ⚠ Las tareas marcadas **⏸ bloqueada por Pn** no se pueden empezar sin esa
 respuesta. Las demás sí.
@@ -24,6 +25,13 @@ respuesta. Las demás sí.
 
 > Único trabajo con reloj: lo que no se capture, no se puede recuperar.
 
+⏸⏸ **T0.1 y T0.2 EN SUSPENSO desde el 2026-09-09, esperando
+[P9](decisiones.md#p9--el-nombre-de-cada-tema-en-la-app).** El dueño pidió
+nombres «distintos y numerados» y fijos, lo que apunta a que esta fase **no hace
+falta** y se borra entera. Se deja escrita —y no se ejecuta— hasta aclararlo,
+porque es la única del proyecto cuyo coste crece mientras se espera.
+**T0.3 va igual**, se decida lo que se decida: no tiene nada que ver con títulos.
+
 ### T0.1 · Escuchar `forum_topic_created` y `forum_topic_edited`
 
 - **dónde** `[coord] src/bot.ts` — dos handlers nuevos; `src/temas.ts` (nuevo)
@@ -33,7 +41,7 @@ respuesta. Las demás sí.
 - ⚠ **el detalle que muerde**: el middleware de allowlist (`src/bot.ts:191-196`)
   corta **todo** lo que no venga de un id permitido, y un evento de servicio lo
   genera **quien creó o renombró el tema**. Si algún día lo hace otra persona (o
-  el propio bot), el título se pierde en silencio. → **[P9](preguntas-abiertas.md)**
+  el propio bot), el título se pierde en silencio. → **[P9](decisiones.md)**
 - **prueba** `tests/temas.test.mjs`: un `forum_topic_edited` pisa el título
   anterior; un tema sin evento no aparece en el fichero.
 - **terminado cuando** renombrar un tema en Telegram cambia la línea de
@@ -96,8 +104,8 @@ respuesta. Las demás sí.
      parte el log en dos sin dar ningún error (§ 4 del plan general).
   3. **Tope por mensaje**, y cuando corte **que lo diga en el propio texto**
      (`[… recortado: N de M bytes …]`), como hace `errores.mjs` con las trazas.
-     Un `>>SHELL` puede volcar megabytes. → **[P4](preguntas-abiertas.md)**
-  4. **Se redacta** con `scripts/redactar.mjs`. → **[P5](preguntas-abiertas.md)**
+     Un `>>SHELL` puede volcar megabytes. → **[P4](decisiones.md)**
+  4. **Se redacta** con `scripts/redactar.mjs`. → **[P5](decisiones.md)**
   5. **El `id` tiene que ordenar**, porque `?desde=<id>` pagina con él: monótono
      y único aunque dos mensajes caigan en el mismo milisegundo.
 - **prueba** `[coord] tests/mensajes.test.mjs`: la forma exacta de la línea · que
@@ -126,9 +134,13 @@ respuesta. Las demás sí.
     bucle de `send()` que trocea a 4000 (`src/bot.ts:56`).
   - `autor:'sistema'` para lo que hoy sólo se ve en el chat: el error de un
     ejecutor (`fail()`), un pegado caducado, el aviso de montaje de workspace.
-- ⚠ **`publicar()` no mira qué ejecutor es.** Filtrar por `c` metería el nombre de
-  un ejecutor concreto en el núcleo, que es la filosofía 2 del coordinador y la
-  **R18** rotas. Filtra el lector. → **[P4](preguntas-abiertas.md)**
+- ✅ **Sólo se registra `c`** (P4), y **sin cablearlo**: el orquestador pregunta
+  *«¿este ejecutor pide registro?»*, no *«¿se llama `c`?»*. El JSON de `c` gana
+  `"registrar": true` y el núcleo sigue sin saber que `c` existe — que es la
+  filosofía 2 del coordinador y la **R18**. Mañana se registra otro cambiando un
+  dato, sin tocar código ni reiniciar.
+- **Y con eso desaparece el problema del tamaño**: sin `shell` en el log, nadie
+  vuelca megabytes. El tope por mensaje se queda igual, por si acaso.
 - **prueba** en `tests/entrada-telegram.test.mjs`, que ya recorre el camino real
   de un mensaje: tras un mensaje, el JSONL tiene exactamente dos líneas.
 - **terminado cuando** una respuesta que en Telegram llegó en 4 trozos está en
@@ -175,7 +187,7 @@ respuesta. Las demás sí.
 
 ### T2.1 · El servidor, y el freno de dónde escucha
 
-- **dónde** `[B] [web] server/index.mjs` · `[A] [coord] src/web.ts`
+- **dónde** `[web] server/index.mjs`
 - **qué** `node:http`, y **escucha sólo en `127.0.0.1`**. `tailscale serve` hace
   de proxy desde la interfaz de la tailnet.
 - ⚠⚠ **Esto es un freno, no una preferencia.** El bot usa long polling
@@ -185,7 +197,7 @@ respuesta. Las demás sí.
 - **prueba** que `server.address().address` es `127.0.0.1`. Una invariante que
   importa es un test, no una frase (**R14**).
 - **terminado cuando** `ss -ltnp` enseña `127.0.0.1:<puerto>` y **no**
-  `0.0.0.0:<puerto>`. → **[P2](preguntas-abiertas.md)**
+  `0.0.0.0:<puerto>`. → **[P2](decisiones.md)**
 
 ### T2.2 · `GET /api/sesiones`
 
@@ -207,7 +219,7 @@ respuesta. Las demás sí.
 - **prueba** que con el watcher desactivado a propósito, el mensaje llega igual
   en ≤ 2 s.
 
-### T2.5 · El estado «pendiente» — ⏸ y lleva caducidad escrita al lado
+### T2.5 · El estado «pendiente» — ⚠ y lleva caducidad escrita al lado
 
 - **qué** Sin streaming no hay señal de vida: si no se marca, la web **parece
   colgada**.
@@ -228,7 +240,7 @@ respuesta. Las demás sí.
   es React + Vite con `dist/` **ignorado por git** (0 ficheros versionados,
   medido 2026-09-09), o sea que allí desplegar exige `npm run build` en la
   máquina. La especificación elige lo contrario a propósito: *«sin paso de build
-  el despliegue sigue siendo `git pull` + reiniciar»*. → **[P10](preguntas-abiertas.md)**
+  el despliegue sigue siendo `git pull` + reiniciar»*. → **[P10](decisiones.md)**
 - **terminado cuando** un cambio de CSS llega a producción con `git pull` y nada más.
 
 ### T2.7 · La vista de conversación
@@ -287,7 +299,7 @@ respuesta. Las demás sí.
   `FVW_WEB_TOKEN` en su `.env`, ese token viaja al `.env` del repo en el droplet
   nuevo y **sobrevive a rehacer el dev**, de modo que la URL marcada en el móvil
   sigue valiendo. La authkey de Tailscale (o el token, si se va por
-  [P2](preguntas-abiertas.md)(b)) tiene exactamente esa forma.
+  [P2](decisiones.md)(b)) tiene exactamente esa forma.
 - ⚠ **Un tipo que cambia sólo llega a las máquinas creadas DESPUÉS**, y sólo si
   el mini tiene el repo del lanzador al día.
 - **terminado cuando** `/executors` lo lista sin copiar nada a mano, porque el
@@ -299,7 +311,7 @@ respuesta. Las demás sí.
 
 > El cerrojo va **antes** que el botón. Lo pide la especificación y es correcto.
 
-### T3.1 · El cerrojo por sesión — ⏸ bloqueada por [P6](preguntas-abiertas.md)
+### T3.1 · El cerrojo por sesión
 
 - **qué** Que dos entradas al mismo tema no produzcan dos `claude --resume` del
   mismo uuid.
@@ -309,6 +321,7 @@ respuesta. Las demás sí.
   porque sólo se escribe al acabar) y el `mtime` del marker dentro de una ventana
   (turno **recién terminado**). Lo que le falta para ser cerrojo es **encolar en
   vez de saltar**.
+- ✅ **Decidido (P6): encola y avisa**, no rechaza.
 - ⚠ **Y lleva su regla de caducidad escrita al lado** (regla 3 de escritura):
   un cerrojo cuyo dueño murió por SIGKILL y no caduca convierte el fallo de una
   tarde en una función muerta en silencio. Ya pasó aquí con `.resume.lock`.
@@ -324,11 +337,18 @@ respuesta. Las demás sí.
 - **prueba** las de `tests/entrada-telegram.test.mjs` siguen pasando sin cambios
   (es un refactor: si hay que tocarlas, algo cambió de comportamiento).
 
-### T3.3 · `POST /api/sesiones/:id/mensajes` — ⏸ bloqueada por [P6](preguntas-abiertas.md)
+### T3.3 · La entrada desde la web, y su eco en Telegram
 
-- **qué** El mensaje entra por el **mismo camino** que uno de Telegram, y **se
-  manda también a Telegram**: si los dos clientes no ven lo mismo, el espejo
-  miente.
+- ✅ **Decidido (P6)**: la web deja el mensaje en un **fichero de entrada** y el
+  coordinador lo recoge. Simétrico con lo que la especificación ya diseña para los
+  procesos desacoplados, sin abrir ningún puerto nuevo, y deja **un solo sitio**
+  que habla con Telegram y **un solo camino** de ejecución.
+- **Y se hace eco en Telegram**, que es lo que el dueño pidió expresamente: la
+  misma conversación se lee igual en la app y en el chat.
+- ⚠ **El eco se verá como un mensaje del bot, no tuyo**: la Bot API no deja a un
+  bot publicar en nombre de una persona. Llevará una marca que lo diga
+  (`📱 (desde la app) …`). El orden y el contenido son los mismos en los dos
+  sitios, que es lo que importa.
 - **Tres detalles que la especificación no cierra:**
   1. **El buffer no aplica.** Une trozos que **Telegram** parte; un `POST` no se
      trocea. Y si hay un pegado a medias en ese tema, hay que decidir qué pasa
@@ -376,7 +396,7 @@ respuesta. Las demás sí.
   armazón**. **Sin push**: Telegram ya avisa.
 - ⚠ **Exige HTTPS y origen estable**, que es lo que ata esta tarea a T4.3.
 
-### T4.3 · Tailscale en esta máquina — ⏸ bloqueada por [P3](preguntas-abiertas.md)
+### T4.3 · Tailscale en esta máquina
 
 - **qué** Instalar, unir a la tailnet, `tailscale serve` al puerto del servidor.
 - ⚠ **Dos obstáculos medidos hoy, ninguno en la especificación:**
@@ -388,7 +408,7 @@ respuesta. Las demás sí.
   el sistema lo mata en segundo plano, la web deja de resolver **sin explicación
   visible** y el síntoma parece del servidor.
 
-### T4.4 · Que Tailscale sobreviva a rehacer la máquina — ⏸ bloqueada por [P3](preguntas-abiertas.md)
+### T4.4 · Que sobreviva a que se destruya el `dev` — ✅ el requisito del dueño
 
 - **dónde** `[lanzador] types/dev.json` y/o el cloud-init
 - **qué** *«Lo que no está empujado, no existe»*: un droplet se rehace sin aviso,
@@ -397,9 +417,17 @@ respuesta. Las demás sí.
 - ⚠ Su **authkey es un secreto**, así que va a los **dos** ficheros
   (`.env` del servicio y `~/.config/dev-secrets.env`). Es la trampa ya indexada
   del proyecto: *al añadir un token nuevo hay que mandarlo a sus dos destinos*.
-- ⚠ **Y el nombre del nodo tiene que ser fijo** (`--hostname=…`), o cada droplet
-  nuevo entra con un nombre distinto y **la PWA instalada en el móvil apunta a un
-  host que ya no existe**. Al destruir la máquina, borrar el nodo de la tailnet.
+- ✅ **El nombre estable se consigue con un NODO EFÍMERO**: Tailscale lo borra
+  solo de la tailnet tras la inactividad, así que el nombre queda libre para el
+  `dev` siguiente y la PWA instalada sigue resolviendo.
+- ⚠⚠ **Pero la limpieza tarda 30-60 min** *(documentación de Tailscale,
+  consultada el 2026-09-09; NO medido aquí)*, y un `dev` se relanza mucho antes de
+  eso. Si el nodo viejo sigue ahí, el nuevo entra como `<nombre>-1` y **la app
+  deja de resolver**. Por eso **el borrado del nodo va donde se destruye el
+  droplet**, en el mini — que es la **R11**: quien apaga, limpia.
+- ⚠ **Y la authkey caduca a los 90 días como máximo** *(íd.)*. Cuando pase, un
+  `dev` nuevo no se une y la web nace **sin acceso y sin un solo error**: el fallo
+  silencioso. O se usa un OAuth client (no caduca), o el preflight avisa antes.
 - **terminado cuando** un droplet nuevo lanzado con `lanzar launch dev` trae la
   web alcanzable **sin tocar nada a mano**.
 

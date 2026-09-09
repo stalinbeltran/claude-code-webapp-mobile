@@ -1,16 +1,22 @@
 # Plan general de implementación
 
-**De qué es plan.** De la propuesta de [`web-lectura-c.md`](../web-lectura-c.md):
+**De qué es plan.** De la propuesta de [`especificacion.md`](especificacion.md):
 una web de lectura (y luego de escritura) para las conversaciones del ejecutor
 `c` del coordinador de Telegram.
 
 **Estado: propuesta. Nada implementado, ninguna línea de código escrita.**
 Escrito el 2026-09-09.
 
+✅ **Las decisiones ya están tomadas** (12 de 13): viven en
+[`decisiones.md`](decisiones.md), con el motivo de cada una. Este plan se lee
+con ellas al lado — donde decía «hay que decidir», ahora dice qué se decidió.
+⚠ La única abierta es **P9** (el nombre de cada tema en la app), y de ella
+depende que la **fase 0 exista o se borre**.
+
 **Cómo se usa este documento.** Contesta *qué se construye y en qué orden*. El
 *cómo*, tarea por tarea, está en [`plan-detallado.md`](plan-detallado.md). Lo
 que hace falta **decidir antes de empezar** está en
-[`preguntas-abiertas.md`](preguntas-abiertas.md), numerado.
+[`decisiones.md`](decisiones.md), numerado.
 
 ---
 
@@ -100,7 +106,7 @@ especiales cableados en el coordinador»*) y la **R18**.
 **Salida propuesta**: el orquestador registra **todo** lo que pasa por él, sin
 mirar el ejecutor; **la web filtra**. Cuesta que el log recoja también las
 salidas de `shell`, que pueden ser enormes → hace falta un tope por mensaje.
-→ **[P4](preguntas-abiertas.md)**
+→ **[P4](decisiones.md)**
 
 ### H2 · `send()` depende de `ctx`: sin refactor, la web no puede escribir a Telegram
 
@@ -128,7 +134,7 @@ contrario: `fv.api` escucha en `0.0.0.0:8010` (medido hoy).
 `127.0.0.1`**, y `tailscale serve` hace de proxy. El bind va en el **mismo commit**
 que el servidor, y con un test que falle si alguien lo cambia a `0.0.0.0`
 (**R14**: una invariante que importa es un test, no una frase).
-→ **[P2](preguntas-abiertas.md)**
+→ **[P2](decisiones.md)**
 
 ### H4 · Tailscale no está instalado — y la máquina es efímera
 
@@ -145,7 +151,7 @@ Dos cosas que la especificación da por hechas y hoy no lo son:
    la PWA instalada apuntando a un host que ya no existe. Hace falta
    `--hostname=<fijo>` y borrar el nodo viejo al destruir la máquina.
 
-→ **[P3](preguntas-abiertas.md)**
+→ **[P3](decisiones.md)**
 
 ### H5 · El log guarda secretos, y aquí ya se filtró un token una vez
 
@@ -167,7 +173,7 @@ ya se guarda no se redacta?»*.
 **Salida propuesta**: reusar `scripts/redactar.mjs`, que ya existe y ya está
 probado en dos sitios. ⚠ Con la trampa medida que trae anotada: *redactar de más
 también es un fallo* (filtrar por longitud borraba `CLAUDE_PERMISSION_MODE` de
-una conversación normal). → **[P5](preguntas-abiertas.md)**
+una conversación normal). → **[P5](decisiones.md)**
 
 ### H6 · Hay un precedente exacto del mecanismo, y no está aprovechado
 
@@ -205,17 +211,20 @@ hilo»* funcionando, con **dos señales porque miden cosas distintas**:
 lo que le falta para ser cerrojo de verdad (encolar en vez de saltar, dentro del
 proceso). Dos implementaciones de «quién manda en este hilo» divergirían, y la
 divergencia sería *dos `claude --resume` del mismo uuid*, que es justo lo que se
-quiere evitar. → **[P6](preguntas-abiertas.md)**
+quiere evitar. → **[P6](decisiones.md)**
 
 ---
-## 4. El reparto: qué vive en qué repo — ⚠ y aquí hay un choque con la especificación
+## 4. El reparto: qué vive en qué repo — ✅ decidido: aparte
 
-La especificación decide: *«Servidor dentro del proceso del coordinador, con
+La especificación decidía: *«Servidor dentro del proceso del coordinador, con
 `node:http`. Nada de un segundo servicio»*. Al revisarlo contra las
 [19 reglas de diseño](https://github.com/stalinbeltran/telegram-coordinator/blob/main/docs/reglas-de-diseno.md)
-y contra lo que la máquina ya corre, **esa decisión choca con cuatro reglas y con
-un precedente en producción**. No se rompe en silencio: se expone y decide el
-dueño (**[P1](preguntas-abiertas.md)**).
+y contra lo que la máquina ya corre, **esa decisión chocaba con cuatro reglas y
+con un precedente en producción**. No se rompió en silencio: se expuso, y el
+**2026-09-09 el dueño decidió que va aparte** (**[P1](decisiones.md)**).
+
+Lo que sigue explica **por qué**, porque una decisión sin su motivo se revierte
+sola la primera vez que estorba.
 
 ### Lo que dice la especificación, y no es débil
 
@@ -296,7 +305,7 @@ digital-ocean-dropplet-auto-launching/    ← para que sobreviva a rehacer la m�
 
 - **Cuesta**: tres repos tocados en vez de uno · una unidad y un puerto más · el
   repo del lanzador entra en el grafo · dos reinicios en vez de uno · y la fase 3
-  deja de ser un `import` y pasa a ser un traspaso diseñado (**[P6](preguntas-abiertas.md)**).
+  deja de ser un `import` y pasa a ser un traspaso diseñado (**[P6](decisiones.md)**).
 - **A cambio**: el repo nuevo se puede clonar solo y arrancar contra un fixture
   (**R3** deja de estar incumplida), un fallo de la web no puede tumbar el
   polling **por estructura**, el `vendor/` no se multiplica por workspace, y el
@@ -308,9 +317,9 @@ conversación de `c` de un tema **desde una unidad de systemd**, llamando a
 `claude-session.mjs` con `COORD_SESSION` y entregando por `notify.mjs`. Nunca
 toca `processIncoming`.
 
-**El resto de este plan supone la opción B**, y marca con `[A]` / `[B]` lo poco
-que cambia si se elige la otra. Las fases, el orden y casi todas las tareas son
-las mismas.
+✅ **Elegida la B el 2026-09-09.** Las marcas `[A]` que quedan en el plan
+detallado señalan lo que se descartó, y se conservan sólo para que se vea qué se
+consideró; no son trabajo.
 
 ### ⚠ Una trampa concreta que este reparto hereda, y ya mordió aquí
 
@@ -352,7 +361,7 @@ se responden las preguntas.
 - **Se verifica**: crear un tema, renombrarlo, `cat data/temas.json`.
 - **Si el proyecto se cancela mañana**, esto ya vale: los títulos son un dato que
   hoy se está perdiendo.
-- ⚠ **Depende de [P7](preguntas-abiertas.md)** para decidir si además se respalda.
+- ⚠ **Depende de [P7](decisiones.md)** para decidir si además se respalda.
 
 ### Fase 1 · `publicar()` y el log
 
@@ -382,7 +391,7 @@ se responden las preguntas.
 - ⚠ **El cerrojo va ANTES que el botón de enviar**, como pide la especificación.
 - **Entrega**: `POST` que entra por el mismo camino que Telegram y **también se
   manda a Telegram** (si no, el espejo miente).
-- **Requiere** el refactor de `send()` ([H2](#h2--send-depende-de-ctx-sin-refactor-la-web-no-puede-escribir-a-telegram)) y decidir **[P6](preguntas-abiertas.md)**.
+- **Requiere** el refactor de `send()` ([H2](#h2--send-depende-de-ctx-sin-refactor-la-web-no-puede-escribir-a-telegram)) y decidir **[P6](decisiones.md)**.
 - **R11 · el freno va en el mismo commit**: un botón de enviar en la web es un
   **acelerador nuevo** —llega a `c`, que corre con `bypassPermissions` y alquila
   máquinas de Vast—, así que su ejecutor de Telegram (`cweb.json`: `estado`,
@@ -394,7 +403,7 @@ se responden las preguntas.
   mensajes, y acceso por Tailscale.
 - ⚠ **Es la fase con más trabajo fuera de estos dos repos**: Tailscale no está
   instalado, el puerto 443 lo tiene `sshd`, y para que sobreviva a rehacer el
-  droplet hay que tocar el repo del lanzador ([H4](#h4--tailscale-no-está-instalado--y-la-máquina-es-efímera)). Ver **[P3](preguntas-abiertas.md)**.
+  droplet hay que tocar el repo del lanzador ([H4](#h4--tailscale-no-está-instalado--y-la-máquina-es-efímera)). Ver **[P3](decisiones.md)**.
 
 ---
 
@@ -421,7 +430,7 @@ cumplimiento.
 | # | Riesgo | Consecuencia | Dónde se ataja |
 |---|---|---|---|
 | 1 | El servidor escucha en `0.0.0.0` en un droplet público | **shell remoto abierto a Internet**, sin allowlist, con `bypassPermissions` | fase 2, con test (**R14**) |
-| 2 | El log filtra un secreto y se sirve al navegador | rotar tokens; y aquí **ya pasó una vez** | fase 1, reusando `redactar.mjs` (**[P5](preguntas-abiertas.md)**) |
+| 2 | El log filtra un secreto y se sirve al navegador | rotar tokens; y aquí **ya pasó una vez** | fase 1, reusando `redactar.mjs` (**[P5](decisiones.md)**) |
 | 3 | Dos `claude --resume` del mismo uuid | conversación corrupta, trabajo perdido | fase 3, cerrojo antes del botón |
 | 4 | El log se parte entre `data/` de casa y el de un workspace | mitad de la conversación invisible, **sin ningún error** | fase 1, una sola función para resolver `DATA_DIR` |
 | 5 | Un fallo de la web tumba el polling | error 409, el bot deja de responder | estructura (opción B) o disciplina (opción A) |
@@ -437,7 +446,7 @@ cumplimiento.
   primer mensaje tras la fase 1. Hay un sembrado posible desde las conversaciones
   archivadas (22 ficheros, 28 MB, medido hoy en
   `foveal-vision-data/conversaciones/`), y **no está planificado** — es
-  **[P8](preguntas-abiertas.md)**.
+  **[P8](decisiones.md)**.
 - **Un renombrado con el bot caído se pierde**, igual que dice la especificación.
   ⚠ Hay una vía **no comprobada** que podría recuperar temas viejos: cuando un
   mensaje responde al mensaje de creación del tema, la Bot API rellena
