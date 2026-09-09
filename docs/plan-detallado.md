@@ -207,7 +207,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ## Fase 2 · Servidor, lectura y SSE
 
-### T2.1 · El servidor, y el freno de dónde escucha
+### T2.1 · ✅ HECHA (2026-09-09) · El servidor, y el freno de dónde escucha
 
 - **dónde** `[web] server/index.mjs`
 - **qué** `node:http`, y **escucha sólo en `127.0.0.1`**. `tailscale serve` hace
@@ -218,22 +218,36 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   de lo contrario: `fv.api` escucha en `0.0.0.0:8010` (medido 2026-09-09).
 - **prueba** que `server.address().address` es `127.0.0.1`. Una invariante que
   importa es un test, no una frase (**R14**).
-- **terminado cuando** `ss -ltnp` enseña `127.0.0.1:<puerto>` y **no**
-  `0.0.0.0:<puerto>`. → **[P2](decisiones.md)**
+- ✅ **El test no comprueba la constante: INTENTA CONECTAR** desde una IP
+  no-loopback de la propia máquina, que es lo que haría alguien de fuera.
+  Comprobado que **falla con `0.0.0.0`** — si no fallara sería un comentario, no
+  un freno (R14). Y si la máquina no tuviera IP externa, el test **lo dice** en
+  vez de pasar callando.
+- ✅ **Y arranca contra el fixture, sin coordinador**: la prueba de la **R3**
+  corriendo, que era el argumento para que este repo exista.
+- **terminado** ✅ 7 tests, sin una sola dependencia. Commit `25352a3`.
 
-### T2.2 · `GET /api/sesiones`
+### T2.2 · ✅ HECHA (2026-09-09) · `GET /api/sesiones`
 
 - **qué** id, nombre, hora del último mensaje, y si está pendiente. Ordenadas por
   actividad.
 - ✅ **El nombre se DERIVA, no se guarda** (P9): `Tema <threadId>`, sacado del
   propio `sessionId`. Ni fichero, ni evento, ni `fuente` que distinguir — y por
   tanto nada que pueda desincronizarse (**R16**).
-- **prueba** contra el fixture, sin coordinador vivo.
+- **terminado** ✅ Commit `dc77331`.
 
-### T2.3 · `GET /api/sesiones/:id/mensajes?desde=<id>`
+### T2.3 · ✅ HECHA (2026-09-09) · `GET /api/sesiones/:id/mensajes?desde=<id>`
 
-- **qué** Historial paginado **hacia atrás**. Lee el JSONL por el final.
-- **prueba** que `?desde=` no repite ni se salta ninguna línea en el borde.
+- **qué** Historial paginado **hacia atrás**.
+- ⚠ **Lee el fichero entero, no por el final**, corrigiendo el plan: la purga lo
+  acota a 300 mensajes, así que leer al revés es más código y más formas de
+  equivocarse para un problema que a esta escala no existe.
+- ✅ `hay_mas` va **explícito**: deducirlo de que vengan `limite` justos hace que
+  una página exacta prometa una siguiente que llega vacía.
+- **terminado** ✅ Tests del borde de página, de sesión inexistente y de `../`.
+  Commit `dc77331`.
+- ✅ **Probado en vivo contra el log real** del coordinador, no sólo con el
+  fixture.
 
 ### T2.4 · `GET /api/eventos` (SSE) con `fs.watch` **y** sondeo
 
