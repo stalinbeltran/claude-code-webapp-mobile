@@ -270,7 +270,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **prueba** matar el coordinador con un turno en curso: al volver, **ninguna**
   sesión aparece pendiente.
 
-### T2.6 · El armazón de la web
+### T2.6 · ✅ HECHA (2026-09-09) · El armazón de la web
 
 - **dónde** `[web] web/index.html`, `web/app.js`, `web/vendor/`
 - **qué** Vue 3 desde su build ESM, **sin bundler**, con `vue`, `markdown-it` y
@@ -280,9 +280,11 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   medido 2026-09-09), o sea que allí desplegar exige `npm run build` en la
   máquina. La especificación elige lo contrario a propósito: *«sin paso de build
   el despliegue sigue siendo `git pull` + reiniciar»*. → **[P10](decisiones.md)**
-- **terminado cuando** un cambio de CSS llega a producción con `git pull` y nada más.
+- **terminado** ✅ vue **3.5.42** y markdown-it **14.3.1** vendorizados (304 KB,
+  con su procedencia). **Sin highlight.js**: la propia especificación descarta
+  esforzarse en los bloques de código. Commit `7e53e14`.
 
-### T2.7 · La vista de conversación
+### T2.7 · ✅ HECHA (2026-09-09) · La vista de conversación
 
 - **qué** Móvil primero, **una columna**. Burbujas tuyas alineadas a la derecha;
   las de Claude **a ancho completo**, porque su contenido es estructurado y no
@@ -290,7 +292,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **La lista de sesiones** lleva título, hora del último mensaje y el indicador de
   *esperando respuesta* de T2.5.
 
-### T2.8 · El renderizado, por orden de importancia real
+### T2.8 · ✅ HECHA (2026-09-09) · El renderizado, por orden de importancia real
 
 - **qué**, en este orden, que es el de la especificación y **no** es el habitual:
   encabezados con jerarquía visible · listas anidadas con sangría · negritas y
@@ -304,10 +306,15 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   tu propia consola de shell.
 - **Selección de texto nativa**: nada de gestos que secuestren la pulsación
   larga, nada de canvas.
-- **prueba** un test que renderice `<img src=x onerror=...>` del fixture y
-  compruebe que sale **escapado**.
+- **prueba** ✅ 8 tests en `tests/markdown.test.mjs`, cargando **el mismo fichero
+  vendorizado** que usa el navegador. Comprobado que el de `html: false` **falla
+  con `html: true`**.
+- ⚠⚠ **Lo que NO está probado**: la interfaz **no se ha abierto nunca en un
+  navegador** — no hay ninguno en esta máquina. Se intentó compilar la plantilla
+  con `compile()` de Vue y necesita un `document` de verdad. Lo que hay caza una
+  etiqueta sin cerrar, que en Vue falla al **montar** y no al escribir.
 
-### T2.9 · La divisoria del `creset`
+### T2.9 · ✅ HECHA (2026-09-09) · La divisoria del `creset`
 
 - **qué** Una línea visible donde `claude-reset.mjs` cortó la conversación.
 - **por qué** Sin la divisoria, la web enseña un contexto que claude ya no tiene
@@ -320,7 +327,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **prueba** `systemctl stop telegram-coordinator` → la web lo anuncia; Telegram
   sigue igual que hoy.
 
-### T2.11 · `[B]` El servicio, declarado donde se declaran los servicios
+### T2.11 · ✅ HECHA (2026-09-09) · El servicio, declarado donde se declaran los servicios
 
 - **dónde** `[web] telegram/executors/cweb.json` · `[lanzador]
   services/claude-web.json` y `types/dev.json`
@@ -340,8 +347,10 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   [P2](decisiones.md)(b)) tiene exactamente esa forma.
 - ⚠ **Un tipo que cambia sólo llega a las máquinas creadas DESPUÉS**, y sólo si
   el mini tiene el repo del lanzador al día.
-- **terminado cuando** `/executors` lo lista sin copiar nada a mano, porque el
-  coordinador descubre `<repo>/telegram/executors/*.json`.
+- **terminado** ✅ Verificado en vivo: el coordinador lo descubre solo (**38
+  ejecutores**, eran 37), la unidad `claude-web` está **activa** y sirve el log
+  real. Manifiesto en el lanzador (`f0bc1f7`) y `types/dev.json` al día.
+  Commit `e8bf052`.
 
 ---
 
