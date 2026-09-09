@@ -144,3 +144,64 @@ test('una ruta desconocida da 404, no un 500 ni un cuelgue', async () => {
     await s.cerrar();
   }
 });
+
+// ---------------------------------------------------------- 4. la API de lectura
+
+test('GET /api/sesiones lista las conversaciones, con su nombre derivado', async () => {
+  const s = await levantar();
+  try {
+    const { code, cuerpo } = await pedir(s.puerto, '/api/sesiones');
+    assert.equal(code, 200);
+    const [x] = cuerpo.sesiones;
+    assert.equal(x.sesion, '-1001234567_7');
+    assert.equal(x.nombre, 'Tema 7', 'el nombre se DERIVA del id: nada que guardar (P9)');
+    assert.equal(x.mensajes, 7);
+    assert.equal(x.ultimo.autor, 'usuario');
+    assert.ok(x.ultimo.extracto.length <= 91, 'el extracto va sin markdown y acotado');
+  } finally { await s.cerrar(); }
+});
+
+test('GET .../mensajes devuelve la última página y dice si hay más', async () => {
+  const s = await levantar();
+  try {
+    const { cuerpo } = await pedir(s.puerto, '/api/sesiones/-1001234567_7/mensajes?limite=3');
+    assert.equal(cuerpo.mensajes.length, 3);
+    assert.equal(cuerpo.total, 7);
+    assert.equal(cuerpo.hay_mas, true);
+    assert.equal(cuerpo.mensajes.at(-1).origen, 'web', 'la ÚLTIMA página es la más reciente');
+  } finally { await s.cerrar(); }
+});
+
+test('?desde= pagina hacia atrás sin repetir ni saltarse nada', async () => {
+  const s = await levantar();
+  try {
+    const p1 = (await pedir(s.puerto, '/api/sesiones/-1001234567_7/mensajes?limite=3')).cuerpo;
+    const p2 = (await pedir(s.puerto,
+      `/api/sesiones/-1001234567_7/mensajes?limite=3&desde=${p1.mensajes[0].id}`)).cuerpo;
+    const juntos = [...p2.mensajes, ...p1.mensajes].map((x) => x.id);
+    assert.equal(new Set(juntos).size, juntos.length, 'ni un mensaje repetido en el borde');
+    assert.deepEqual(juntos, [...juntos].sort(), 'y siguen en orden');
+    assert.equal(p2.hay_mas, true, 'de 7, quedan 1 por detrás');
+  } finally { await s.cerrar(); }
+});
+
+test('una sesión que no existe da una página vacía, no un error', async () => {
+  const s = await levantar();
+  try {
+    const { code, cuerpo } = await pedir(s.puerto, '/api/sesiones/no_existe/mensajes');
+    assert.equal(code, 200, 'un tema sin log todavía es normal, no un fallo');
+    assert.deepEqual(cuerpo.mensajes, []);
+    assert.equal(cuerpo.hay_mas, false);
+  } finally { await s.cerrar(); }
+});
+
+test('un id con ../ no se sale del directorio de mensajes', async () => {
+  const s = await levantar();
+  try {
+    const { code, cuerpo } = await pedir(s.puerto,
+      `/api/sesiones/${encodeURIComponent('../../../etc/passwd')}/mensajes`);
+    assert.equal(code, 200);
+    assert.deepEqual(cuerpo.mensajes, [],
+      'las barras se convierten en `_` al formar el nombre: no hay forma de salir');
+  } finally { await s.cerrar(); }
+});

@@ -1,8 +1,9 @@
 # El fixture del log de mensajes — la copia del consumidor
 
-`ejemplo.jsonl` es **byte a byte el mismo** que
+`-1001234567_7.jsonl` es **byte a byte el mismo** que
 [`telegram-coordinator/tests/fixtures/mensajes/`](https://github.com/stalinbeltran/telegram-coordinator/tree/main/tests/fixtures/mensajes).
-No se edita aquí: se **regenera allí** —lo produce `scripts/mensajes.mjs`, no una
+⚠ **El nombre del fichero ES la identidad de la sesión** (`<chatId>_<threadId>`),
+de donde el lector saca el nombre de la conversación. No se edita aquí: se **regenera allí** —lo produce `scripts/mensajes.mjs`, no una
 mano— y se copia a los dos repos en el mismo commit.
 
 **Para qué está aquí.** Para poder probar el lector de esta web **sin arrancar el

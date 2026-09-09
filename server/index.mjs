@@ -26,6 +26,7 @@
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { listarSesiones, leerMensajes, PAGINA } from './datos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
@@ -87,6 +88,24 @@ export function crearServidor(raiz) {
         log: existsSync(dirMensajes) ? 'presente' : 'todavía no hay ninguno',
         datos: raiz,
       });
+    }
+
+    if (url.pathname === '/api/sesiones') {
+      return json(res, 200, { sesiones: listarSesiones(raiz) });
+    }
+
+    // El id lleva `_` y puede empezar por `-` (los chats de grupo son negativos),
+    // así que se casa explícito y no con un `split('/')`.
+    // ⚠ No hace falta defenderse del `..`: `datos.mjs` sanea el id para formar el
+    // nombre del fichero y ahí una `/` se convierte en `_`, así que no hay forma
+    // de salir de `mensajes/`. Tiene test, porque «no hace falta» envejece mal.
+    const m = url.pathname.match(/^\/api\/sesiones\/([^/]+)\/mensajes$/);
+    if (m) {
+      const limite = Math.min(Number(url.searchParams.get('limite')) || PAGINA, 500);
+      return json(res, 200, leerMensajes(raiz, decodeURIComponent(m[1]), {
+        desde: url.searchParams.get('desde'),
+        limite,
+      }));
     }
 
     json(res, 404, { error: `No existe ${url.pathname}` });
