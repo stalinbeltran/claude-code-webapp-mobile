@@ -365,7 +365,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 > El cerrojo va **antes** que el botón. Lo pide la especificación y es correcto.
 
-### T3.1 · El cerrojo por sesión
+### T3.1 · ✅ HECHA (2026-09-09) · El cerrojo por sesión
 
 - **qué** Que dos entradas al mismo tema no produzcan dos `claude --resume` del
   mismo uuid.
@@ -379,17 +379,28 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ⚠ **Y lleva su regla de caducidad escrita al lado** (regla 3 de escritura):
   un cerrojo cuyo dueño murió por SIGKILL y no caduca convierte el fallo de una
   tarde en una función muerta en silencio. Ya pasó aquí con `.resume.lock`.
-- **prueba** dos entradas simultáneas al mismo tema → un solo `claude`, la
-  segunda espera. Y: cerrojo con dueño muerto → **no** bloquea.
+- ✅ **Vive en MEMORIA, y ésa es su caducidad.** Un cerrojo en disco sobrevive a
+  su dueño, y un SIGKILL a mitad dejaría el tema bloqueado para siempre — el fallo
+  del `.resume.lock`. Hay un test **estructural** que falla si alguien lo mueve a
+  disco sin escribirle una caducidad.
+- ✅ Se envuelve el turno **entero**, no sólo el ejecutor: los encargados hablan
+  con el mismo estado del tema (`claude-watch` mira su marker), así que partir el
+  cerrojo por la mitad dejaría una ventana abierta al final.
+- **prueba** ✅ 9 tests, incluido el camino real del orquestador **con relojes**:
+  dos turnos del mismo tema tardan el doble (si tardaran lo mismo, corrieron a la
+  vez). Y: un fallo no bloquea la sesión · temas distintos no se estorban · la
+  cola tiene tope · al que espera se le avisa. Commit `576a8bf`.
 
-### T3.2 · Sacar el envío de Telegram de `ctx`
+### T3.2 · ✅ HECHA (2026-09-09) · Sacar el envío de Telegram de `ctx`
 
 - **dónde** `[coord] src/bot.ts`
 - **qué** Extraer `enviarA(api, chatId, threadId, texto)`; `send(ctx, …)` pasa a
   ser su envoltorio. Hoy `send()` usa `ctx.reply` (`src/bot.ts:51-60`) y un
   mensaje que no venga de Telegram no tiene `ctx`.
-- **prueba** las de `tests/entrada-telegram.test.mjs` siguen pasando sin cambios
-  (es un refactor: si hay que tocarlas, algo cambió de comportamiento).
+- **terminado** ✅ **La suite pasó entera sin tocar ni un test** (277/277), que
+  es la prueba de que es un refactor. Más dos tests de lo que ahora se puede
+  hacer: mandar a un tema sin `ctx`, y que se sigue troceando a 4000 — el límite
+  es de Telegram, no de quien llame. Commit `c0b6a51`.
 
 ### T3.3 · La entrada desde la web, y su eco en Telegram
 
