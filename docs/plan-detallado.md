@@ -72,9 +72,13 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 
 ## Fase 1 · `publicar()` y el log
 
-### T1.1 · El módulo del log
+### T1.1 · ✅ HECHA (2026-09-09) · El módulo del log
 
-- **dónde** `[coord] src/mensajes.ts` (nuevo)
+- **dónde** ⚠ `[coord] scripts/mensajes.mjs` (nuevo) — **no `src/mensajes.ts`,
+  corrigiendo este plan**: lo importan los procesos desacoplados (T1.5), que se
+  lanzan con `node` sin `tsx` y desde ahí no se puede importar un `.ts`. Es el
+  caso de `errores.mjs`, que `orchestrator.ts` ya importa con `@ts-expect-error`.
+  En `src/` habría hecho falta una segunda implementación, y dos copias divergen.
 - **qué** `publicar({sesion, autor, texto, origen})` → una línea JSON con
   `O_APPEND`. Se copia la forma de `scripts/errores.mjs`, que ya resuelve esto
   para otro contenido.
@@ -94,10 +98,19 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **prueba** `[coord] tests/mensajes.test.mjs`: la forma exacta de la línea · que
   no lanza con el directorio en sólo-lectura · que dos llamadas en el mismo ms
   dan ids crecientes · que con `COORD_WS` puesto escribe **en casa**.
-- **terminado cuando** `tail -f data/mensajes/<sesión>.jsonl` enseña la
-  conversación mientras se habla por Telegram.
+- **prueba** ✅ 10 tests en `tests/mensajes.test.mjs`.
+- ⚠⚠ **Y su test cazó un fallo real antes de producción**: `nuevoId` reintentaba
+  al azar hasta superar el id anterior, lo que dentro del mismo milisegundo es un
+  **bucle casi infinito** — colgó el proceso al pedir 200 ids con el reloj parado,
+  y en producción habría colgado el turno la primera vez que dos mensajes cayeran
+  juntos. Ahora el orden lo da un contador: **50.000 ids con el reloj parado en
+  494 ms**, únicos y ordenados *(medido el 2026-09-09)*.
+- ⚠ Ese test lleva **tope de tiempo explícito**: sin él no fallaba, **colgaba** —
+  que es peor, porque no dice qué pasa.
+- **terminado** ✅ Suite 238/238. Commit `5a17e32`. Falta que alguien lo llame
+  (T1.3), que es lo que hará que se pueda ver con `tail -f`.
 
-### T1.2 · El formato, escrito donde vive su productor
+### T1.2 · ✅ HECHA (2026-09-09) · El formato, escrito donde vive su productor
 
 - **dónde** `[coord] docs/log-de-mensajes.md`
 - **qué** El contrato: los campos, qué significa cada `autor` y cada `origen`,
@@ -105,7 +118,9 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   **no** (que sea la conversación de claude: es una transcripción paralela).
 - **por qué ahí y no aquí** Lo que cruza repos se escribe donde se **dispara** y
   desde el otro se **enlaza**; copiado, nacen dos mitades desfasadas.
-- **terminado cuando** este repo lo enlaza y no lo copia.
+- **terminado** ✅ `telegram-coordinator/docs/log-de-mensajes.md`, 95 líneas: los
+  campos, lo que el fichero **garantiza** (5 cosas), lo que **no** garantiza, y
+  por qué la ruta sale de `DATA_DIR` y nunca de `'data'`. Este repo lo **enlaza**.
 
 ### T1.3 · Publicar la entrada y la salida
 
@@ -129,12 +144,12 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **terminado cuando** una respuesta que en Telegram llegó en 4 trozos está en
   **una sola línea** del log.
 
-### T1.4 · `data/mensajes/` fuera de git
+### T1.4 · ✅ HECHA (2026-09-09) · `data/mensajes/` fuera de git
 
 - **dónde** `[coord] .gitignore`
 - **qué** Añadirlo junto a `data/buffer/` y `data/ws/`. Contiene todo lo que
   Claude dijo, incluidas salidas de shell y rutas.
-- **terminado cuando** `git status` sigue limpio tras una conversación.
+- **terminado** ✅ En `.gitignore` junto a `data/buffer/` y `data/repeticiones/`.
 
 ### T1.5 · Que los desacoplados escriban también
 
