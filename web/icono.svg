@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Conversaciones">
+  <!-- Fondo a sangre y con margen de seguridad: un icono `maskable` se recorta en
+       círculo o en cuadrado redondeado según el lanzador de Android, así que lo
+       que importa tiene que caber en el 60 % central. -->
+  <rect width="512" height="512" fill="#14161a"/>
+  <g fill="none" stroke="#6aa9ff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 168h240a28 28 0 0 1 28 28v120a28 28 0 0 1-28 28H236l-72 56v-56h-28a28 28 0 0 1-28-28V196a28 28 0 0 1 28-28z"/>
+  </g>
+  <g fill="#e6e8ec">
+    <rect x="168" y="216" width="152" height="20" rx="10"/>
+    <rect x="168" y="256" width="112" height="20" rx="10"/>
+  </g>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "name": "Conversaciones de claude",
+  "short_name": "claude",
+  "description": "Lee en markdown renderizado lo que responde Claude Code por Telegram.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#14161a",
+  "theme_color": "#14161a",
+  "lang": "es",
+  "icons": [
+    { "src": "/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

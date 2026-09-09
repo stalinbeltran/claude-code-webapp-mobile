@@ -136,7 +136,14 @@ createApp({
       });
     }
 
-    onMounted(() => { cargarLista(); escuchar(); });
+    onMounted(() => {
+      cargarLista();
+      escuchar();
+      // El service worker sólo sirve para que la app ABRA sin red; los datos
+      // siempre vienen del servidor. Si el navegador no lo soporta —o no estamos
+      // en un contexto seguro— no pasa nada: la app funciona igual.
+      navigator.serviceWorker?.register('/sw.js').catch(() => {});
+    });
 
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
