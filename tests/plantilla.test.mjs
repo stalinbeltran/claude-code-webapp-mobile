@@ -66,3 +66,12 @@ test('la divisoria del creset está en la plantilla', () => {
   assert.match(PLANTILLA, /esCorte\(m\)/);
   assert.match(PLANTILLA, /class="corte"/);
 });
+
+test('la plantilla no lleva backticks dentro: cerrarían su propio literal', () => {
+  // Pasó el 2026-09-09 al escribir un comentario con `c` dentro del template:
+  // el fichero dejó de parsearse entero. El test que la importa ya lo caza, pero
+  // el error que da —«Unexpected identifier»— no dice de qué va, así que este
+  // lo nombra.
+  assert.doesNotMatch(PLANTILLA, /`/, 'usa comillas normales dentro de la plantilla');
+  assert.doesNotMatch(PLANTILLA, /\$\{/, 'y nada de interpolación: eso lo hace Vue con {{ }}');
+});

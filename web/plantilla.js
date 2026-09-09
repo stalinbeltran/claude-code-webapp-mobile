@@ -22,6 +22,10 @@ export const PLANTILLA = `
 
     <main>
       <div v-if="error" class="error">{{ error }}</div>
+
+      <!-- Que el bot esté parado se DICE. Enseñar el último log como si fuera de
+           ahora es fallar a mitad: parece que claude no te contestó. -->
+      <div v-if="avisoCoordinador" class="aviso">{{ avisoCoordinador }}</div>
       <div v-if="cargando" class="cargando">cargando…</div>
 
       <!-- lista -->
@@ -36,7 +40,10 @@ export const PLANTILLA = `
             <span class="cuando">{{ cuando(s.ultimo?.ts) }}</span>
           </span>
           <span class="extracto">{{ s.ultimo?.extracto || '(sin mensajes)' }}</span>
-          <span class="cuantos">{{ s.mensajes }} mensaje(s)</span>
+          <span class="cuantos">
+            {{ s.mensajes }} mensaje(s)
+            <span v-if="s.pendiente" class="pendiente">· ⏳ esperando respuesta</span>
+          </span>
         </button>
       </template>
 
@@ -51,6 +58,9 @@ export const PLANTILLA = `
           </div>
         </template>
         <p v-if="!mensajes.length" class="vacio">Esta conversación todavía no tiene mensajes.</p>
+        <!-- Sin streaming no hay señal de vida: sin esto, la web parece colgada
+             mientras claude piensa, que pueden ser minutos. -->
+        <p v-if="pendienteAqui" class="pendiente esperando">⏳ claude está respondiendo…</p>
       </template>
     </main>
   `;

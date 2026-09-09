@@ -23,7 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -250,5 +250,36 @@ test('una extensión desconocida no se sirve, aunque el fichero exista', async (
     // con un 200. La lista es lo que hace que eso no dependa de nadie.
     const r = await fetch(`http://${HOST}:${s.puerto}/vendor/README.md`);
     assert.equal(r.status, 404);
+  } finally { await s.cerrar(); }
+});
+
+// -------------------------------- 6. el estado del coordinador, en la respuesta
+
+test('/api/sesiones trae el estado del coordinador en la MISMA respuesta', async () => {
+  const s = await levantar();
+  try {
+    const { cuerpo } = await pedir(s.puerto, '/api/sesiones');
+    assert.ok(cuerpo.coordinador, 'si fueran dos llamadas, la pantalla podría pintar ' +
+      'conversaciones sin saber todavía si el bot está vivo');
+    assert.equal(cuerpo.coordinador.hay, false, 'el fixture no trae latido');
+    assert.equal(cuerpo.sesiones[0].pendiente, false);
+  } finally { await s.cerrar(); }
+});
+
+test('una sesión con turno en curso sale como pendiente', async () => {
+  const raiz = mkdtempSync(join(tmpdir(), 'cweb-turno-'));
+  mkdirSync(join(raiz, 'mensajes'), { recursive: true });
+  writeFileSync(join(raiz, 'mensajes', '-100_7.jsonl'),
+    JSON.stringify({ id: 'a', ts: '2026-09-09T21:00:00Z', sesion: '-100_7',
+      autor: 'usuario', origen: 'telegram', texto: 'hola' }) + '\n');
+  writeFileSync(join(raiz, 'coordinador.json'), JSON.stringify({
+    visto: new Date().toISOString(), vence_ms: 45_000,
+    turnos: { '-100_7': { desde: new Date().toISOString(), ejecutor: 'c' } },
+  }));
+  const s = await levantar(raiz);
+  try {
+    const { cuerpo } = await pedir(s.puerto, '/api/sesiones');
+    assert.equal(cuerpo.coordinador.vivo, true);
+    assert.equal(cuerpo.sesiones[0].pendiente, true);
   } finally { await s.cerrar(); }
 });

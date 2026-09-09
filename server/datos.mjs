@@ -121,3 +121,45 @@ export function leerMensajes(raiz, sesion, { desde = null, limite = PAGINA } = {
     ...(rotas ? { rotas } : {}),
   };
 }
+
+/**
+ * El latido del coordinador: si sigue vivo y qué está atendiendo ahora.
+ *
+ * El contrato está donde su productor:
+ * `telegram-coordinator/docs/log-de-mensajes.md` § «El latido».
+ *
+ * ⚠ La regla de caducidad **viene dentro del fichero** (`vence_ms`), y se usa la
+ * suya, no una copia nuestra: si el coordinador cambia su ritmo de latido, esto
+ * se entera solo. Una constante repetida aquí sería una segunda definición que
+ * diverge sin que nadie se entere.
+ *
+ * ⚠⚠ Y si el latido venció, **los turnos se descartan con él**. No se puede
+ * enseñar «esperando respuesta» apoyándose en un fichero que dejó de refrescarse
+ * hace una hora: eso es exactamente lo que hace que un aviso se quede puesto para
+ * siempre tras una caída.
+ *
+ * @returns {{vivo: boolean, hay: boolean, visto: string|null, turnos: object}}
+ */
+export function leerLatido(raiz, ahora = Date.now()) {
+  const f = join(raiz, 'coordinador.json');
+  if (!existsSync(f)) {
+    // «No hay latido» NO es «está caído»: también es un coordinador que todavía
+    // no tiene esta versión. Se distingue con `hay`, para poder decirlo distinto.
+    return { vivo: false, hay: false, visto: null, turnos: {} };
+  }
+  try {
+    const l = JSON.parse(readFileSync(f, 'utf8'));
+    const edad = ahora - new Date(l.visto).getTime();
+    const vivo = Number.isFinite(edad) && edad >= 0 && edad < (Number(l.vence_ms) || 45_000);
+    return {
+      vivo,
+      hay: true,
+      visto: l.visto ?? null,
+      edad_ms: Number.isFinite(edad) ? edad : null,
+      turnos: vivo ? (l.turnos ?? {}) : {},
+    };
+  } catch {
+    // Un latido ilegible es una duda, no un «está bien».
+    return { vivo: false, hay: true, visto: null, turnos: {}, roto: true };
+  }
+}

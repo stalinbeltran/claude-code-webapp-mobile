@@ -28,7 +28,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { listarSesiones, leerMensajes, PAGINA } from './datos.mjs';
+import { listarSesiones, leerMensajes, leerLatido, PAGINA } from './datos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
@@ -114,11 +114,21 @@ export function crearServidor(raiz) {
         // estado normal y distinto de «esto está roto».
         log: existsSync(dirMensajes) ? 'presente' : 'todavía no hay ninguno',
         datos: raiz,
+        coordinador: leerLatido(raiz),
       });
     }
 
     if (url.pathname === '/api/sesiones') {
-      return json(res, 200, { sesiones: listarSesiones(raiz) });
+      const latido = leerLatido(raiz);
+      return json(res, 200, {
+        // El estado del coordinador va en la MISMA respuesta que la lista: si
+        // fueran dos llamadas, la pantalla podría pintar conversaciones sin
+        // saber todavía si el bot está vivo, que es justo lo que hay que decir
+        // antes de que el usuario crea que claude no le contesta.
+        coordinador: latido,
+        sesiones: listarSesiones(raiz)
+          .map((s) => ({ ...s, pendiente: Boolean(latido.turnos[s.sesion]) })),
+      });
     }
 
     // El id lleva `_` y puede empezar por `-` (los chats de grupo son negativos),

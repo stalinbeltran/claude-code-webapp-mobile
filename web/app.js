@@ -44,11 +44,28 @@ createApp({
     const error = ref('');
     const nombre = computed(() =>
       sesiones.value.find((s) => s.sesion === abierta.value)?.nombre ?? '');
+    const coordinador = ref({ vivo: false, hay: false, turnos: {} });
+    const pendienteAqui = computed(() => Boolean(coordinador.value.turnos?.[abierta.value]));
+
+    /** El aviso, o cadena vacía si no hay nada que decir. Los tres casos son
+     *  distintos a propósito: «no hay latido» es un coordinador viejo, no una
+     *  caída, y confundirlos manda a reiniciar algo que funciona. */
+    const avisoCoordinador = computed(() => {
+      const c = coordinador.value;
+      if (c.vivo) return '';
+      if (!c.hay) return '⚠ No sé si el bot está vivo: este coordinador todavía no escribe latido. ' +
+        'Lo que ves puede estar al día o no.';
+      if (c.roto) return '⚠ El latido del bot no se puede leer. No sé si está vivo.';
+      return '🔴 El bot parece PARADO (no da señales). Lo que ves es lo último que llegó, ' +
+        'no lo de ahora — y un mensaje que le mandes por Telegram no se atenderá.';
+    });
 
     async function cargarLista() {
       cargando.value = true; error.value = '';
       try {
-        sesiones.value = (await api('/api/sesiones')).sesiones;
+        const r = await api('/api/sesiones');
+        sesiones.value = r.sesiones;
+        coordinador.value = r.coordinador ?? { vivo: false, hay: false, turnos: {} };
       } catch (e) {
         // Se DICE que no se pudo, en vez de enseñar una lista vacía — que se
         // leería como «no has hablado con claude nunca».
@@ -85,6 +102,7 @@ createApp({
 
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
+      coordinador, avisoCoordinador, pendienteAqui,
       abrir, volver, masAntiguos, cuando, AUTOR,
       render: (t) => md.render(String(t ?? '')),
       esCorte: (m) => m.autor === 'sistema' && m.origen === 'creset',
