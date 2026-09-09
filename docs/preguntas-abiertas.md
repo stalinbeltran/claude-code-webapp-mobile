@@ -128,6 +128,15 @@ En contra: **se sirve por HTTP** y se queda cacheado en el móvil.
 fallo — filtrar por longitud borraba `CLAUDE_PERMISSION_MODE` de las 18 veces que
 sale en una conversación normal.
 
+⚠⚠ **Y una segunda mitad que salió al verificar este plan: `data/` YA guarda
+texto tuyo sin redactar, en dos sitios.** `data/buffer/<sesión>.json` conserva un
+pegado a medias mientras se ensambla —y si caduca **se aparta, no se borra**
+(`<sesión>.caducado-<ts>.json`), o sea texto crudo en disco indefinidamente—, y
+`data/repeticiones/` guarda la frase armada de `repetir` mientras lo esté. Si el
+motivo de redactar el log nuevo es que *«ya se filtró un token una vez»*, la misma
+pregunta vale para esos dos. **¿Entran en el alcance, o se dejan como están y se
+anota por qué?**
+
 **Bloquea** la fase 1.
 
 ## P6 · ¿Por dónde entra un mensaje escrito en la web, y qué hace el cerrojo?

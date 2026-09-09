@@ -26,15 +26,15 @@ medir se dice.
 | No existe `getForumTopic` en la Bot API: el título del tema sólo llega por eventos de servicio | ✅ **cierto** | `grep -o "[a-zA-Z]*ForumTopic[a-zA-Z]*(" node_modules/@grammyjs/types/methods.d.ts \| sort -u` → 13 métodos, ninguno lee el nombre |
 | grammY sabe filtrar esos eventos | ✅ `forum_topic_created` y `forum_topic_edited` están en `filter.d.ts` | grammY **1.44.0**, `node_modules/grammy/package.json` |
 | El coordinador trocea la salida a 4000 | ✅ `TELEGRAM_LIMIT = 4000` | `src/bot.ts:39`, usado en `send()` (`src/bot.ts:51-60`) |
-| El coordinador no guarda lo que se dijo | ✅ `data/` tiene `sessions`, `ws`, `buffer`, `claude-sessions`, `shell-cwd` — ninguno guarda texto | `cat .gitignore`, `ls data/` |
+| El coordinador no guarda **un log** de lo que se dijo | ✅ cierto: no hay ninguna transcripción. ⚠ **Pero no es que `data/` no tenga texto**: `data/buffer/<sesión>.json` guarda el pegado a medias mientras se ensambla —y el caducado **se aparta, no se borra**—, y `data/repeticiones/` guarda la frase armada de `repetir`. Los dos, **sin redactar** | `src/buffer.ts:68` y `:117`, `scripts/repetir-estado.mjs:137` |
 | …pero el mecanismo del log **ya existe** para otra cosa | ⚠ **la especificación no lo sabe**: `scripts/errores.mjs` es un JSONL append-only escrito por el coordinador y por scripts sueltos, ya redactado y probado | `scripts/errores.mjs`, 171 líneas |
 | `claude-session.mjs` no hay que tocarlo | ✅ lee stdin, escribe stdout, sin `stream-json` | `scripts/claude-session.mjs:87-104` |
 | El estado por tema no se muda con el workspace | ✅ `DATA_DIR` va absoluto a todo comando | `src/orchestrator.ts:60-64` |
-| El proceso del coordinador **no escucha ningún puerto** hoy | ✅ sólo 22, 443 (sshd) y 8010 (`fv.api`) | `ss -ltnp` |
+| El proceso del coordinador **no escucha ningún puerto** hoy | ✅ sólo 22, 443 (sshd) y 8010 (`fv.api`) — más el stub DNS de loopback de Ubuntu, que no es de nadie de aquí | `ss -ltnp` |
 | Tailscale está instalado | ❌ **NO lo está** | `which tailscale` → *command not found* |
 | El puerto 443 está libre para `tailscale serve` | ❌ **NO**: lo tiene `sshd` en `0.0.0.0`, o sea en **todas** las interfaces, incluida la de Tailscale | `ss -ltnp \| grep :443` |
 | Hay CI que corra los tests | ❌ **no hay**, ni aquí ni en el coordinador | `ls .github/workflows` → no existe |
-| Cuántos mensajes al día pasan por el bot (para dimensionar la purga) | ⚠ **no medido**: el journal de esta máquina tiene 2 mensajes en 7 días porque el droplet se rehizo hoy | `journalctl -u telegram-coordinator --since "7 days ago" \| grep -c '^\[IN\]'` |
+| Cuántos mensajes al día pasan por el bot (para dimensionar la purga) | ⚠ **no medido**: el journal de esta máquina tiene 2 mensajes en 7 días porque el droplet se rehizo hoy | `journalctl -u telegram-coordinator -o cat --since "7 days ago" \| grep -c '^\[IN\]'` ⚠ sin `-o cat` da 0: el prefijo de syslog desplaza el `[IN]` |
 
 ---
 
@@ -157,6 +157,12 @@ dijo, incluidas salidas de shell. La especificación sólo prevé **purga**, no
 Atenuantes reales: el fichero **no se commitea** (va a `.gitignore`, como el
 resto de `data/`) y no sale de la máquina. Agravante: **se sirve por HTTP** a un
 navegador y se queda cacheado en el móvil.
+
+⚠ Y esto **no estrena el problema**, que es lo que salió al verificar el plan:
+`data/buffer/` ya guarda texto tuyo sin redactar —y el pegado caducado se
+**aparta**, no se borra— y `data/repeticiones/` guarda la frase de `repetir`. O
+sea que la pregunta no es *«¿empezamos a guardar texto?»* sino *«¿por qué lo que
+ya se guarda no se redacta?»*.
 
 **Salida propuesta**: reusar `scripts/redactar.mjs`, que ya existe y ya está
 probado en dos sitios. ⚠ Con la trampa medida que trae anotada: *redactar de más
