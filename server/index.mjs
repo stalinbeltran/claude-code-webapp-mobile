@@ -27,6 +27,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { listarSesiones, leerMensajes, PAGINA } from './datos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
@@ -56,21 +57,31 @@ export const PUERTO = Number(process.env.CWEB_PORT ?? 8020);
  * que servir, y adivinarla sería el antipatrón de la R4.
  * @returns {{ raiz: string } | { error: string }}
  */
-export function raizDatos(env = process.env) {
-  if (!env.DATA_DIR) {
-    return {
-      error: 'Falta DATA_DIR: no sé dónde está el log de mensajes.\n' +
-        '  Es el `data/` del coordinador que lo escribe, p. ej.:\n' +
-        '    DATA_DIR=~/src/telegram-coordinator/data npm start\n' +
-        '  Para probar sin coordinador, vale el fixture:\n' +
-        '    DATA_DIR=./tests/fixtures npm start',
-    };
+export function raizDatos(env = process.env, casa = homedir()) {
+  if (env.DATA_DIR) {
+    const raiz = resolve(env.DATA_DIR);
+    return existsSync(raiz) ? { raiz } : { error: `DATA_DIR apunta a "${raiz}", que no existe.` };
   }
-  const raiz = resolve(env.DATA_DIR);
-  if (!existsSync(raiz)) {
-    return { error: `DATA_DIR apunta a "${raiz}", que no existe.` };
-  }
-  return { raiz };
+
+  // El DEFECTO DECLARADO (R2): el sitio de siempre en estas máquinas. Existe para
+  // que un droplet recién lanzado traiga la web funcionando sin que nadie tenga
+  // que acordarse de configurar una variable — «si para que algo esté hay que
+  // acordarse de un flag, tarde o temprano no está».
+  // ⚠ Sólo se usa si de verdad está ahí, y se ANUNCIA al arrancar: un defecto
+  // silencioso que acierta es indistinguible de uno que falla.
+  const porDefecto = join(casa, 'src', 'telegram-coordinator', 'data');
+  if (existsSync(porDefecto)) return { raiz: porDefecto, porDefecto: true };
+
+  // Y si tampoco está, se NIEGA en vez de servir un log vacío: eso se leería
+  // como «no has hablado con claude nunca», que es lo mismo que se ve cuando el
+  // log no se encuentra. Fallar a mitad no es una opción.
+  return {
+    error: 'No sé dónde está el log de mensajes.\n' +
+      `  Miré en DATA_DIR (no está puesto) y en ${porDefecto} (no existe).\n` +
+      '  Dímelo:      DATA_DIR=~/src/telegram-coordinator/data npm start\n' +
+      '  O sin coordinador, con el fixture:\n' +
+      '               DATA_DIR=./tests/fixtures npm start',
+  };
 }
 
 function json(res, code, cuerpo) {
@@ -172,6 +183,7 @@ export function arrancar() {
   const server = crearServidor(r.raiz);
   server.listen(PUERTO, HOST, () => {
     console.log(`🌐 Web de lectura en http://${HOST}:${PUERTO}  (log: ${r.raiz})`);
+    if (r.porDefecto) console.log('   (nadie me dijo DATA_DIR: uso el sitio de siempre)');
     console.log('   Sólo escucha en loopback: desde fuera se entra por `tailscale serve`.');
   });
   // Un fallo de red no puede tumbar el proceso sin decir por qué.

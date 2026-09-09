@@ -23,7 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,11 +87,23 @@ test('escucha en loopback y NO en la IP pública de la máquina', async () => {
 
 // -------------------------------------------- 2. que se niegue antes de empezar
 
-test('sin DATA_DIR se NIEGA, y dice las dos formas de arreglarlo', () => {
-  const r = raizDatos({});
-  assert.ok('error' in r, 'no puede inventarse dónde está el log');
+test('sin DATA_DIR usa el sitio de siempre, y lo ANUNCIA', () => {
+  // El defecto existe para que un droplet nuevo traiga la web funcionando sin que
+  // nadie recuerde configurar nada. Pero se marca, porque un defecto silencioso
+  // que acierta es indistinguible de uno que falla.
+  const casa = mkdtempSync(join(tmpdir(), 'cweb-casa-'));
+  mkdirSync(join(casa, 'src', 'telegram-coordinator', 'data'), { recursive: true });
+  const r = raizDatos({}, casa);
+  assert.equal(r.raiz, join(casa, 'src', 'telegram-coordinator', 'data'));
+  assert.equal(r.porDefecto, true, 'y se sabe que fue por defecto, para poder decirlo');
+});
+
+test('si tampoco está el sitio de siempre, se NIEGA y dice las dos salidas', () => {
+  const casa = mkdtempSync(join(tmpdir(), 'cweb-vacia-'));
+  const r = raizDatos({}, casa);
+  assert.ok('error' in r, 'servir un log vacío se leería como «no has hablado nunca»');
   assert.match(r.error, /DATA_DIR/);
-  assert.match(r.error, /telegram-coordinator\/data/, 'dice de dónde sale en producción');
+  assert.match(r.error, /telegram-coordinator\/data/, 'dice dónde miró');
   assert.match(r.error, /fixtures/, 'y cómo probarlo sin coordinador');
 });
 
