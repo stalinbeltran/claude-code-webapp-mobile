@@ -29,6 +29,7 @@ import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { listarSesiones, leerMensajes, leerLatido, PAGINA } from './datos.mjs';
+import { crearVigilante } from './eventos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
@@ -102,8 +103,11 @@ function json(res, code, cuerpo) {
  * un puerto y sin depender de que haya un coordinador vivo.
  */
 export function crearServidor(raiz) {
-  return createServer((req, res) => {
+  const vigilante = crearVigilante(raiz);
+  const server = createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
+
+    if (url.pathname === '/api/eventos') return vigilante.suscribir(req, res);
 
     if (url.pathname === '/api/salud') {
       const dirMensajes = join(raiz, 'mensajes');
@@ -150,6 +154,12 @@ export function crearServidor(raiz) {
 
     json(res, 404, { error: `No existe ${url.pathname}` });
   });
+
+  // Al cerrar el servidor se para el vigilante y se sueltan los clientes SSE: si
+  // no, `close()` no termina nunca porque quedan sockets abiertos.
+  server.on('close', () => vigilante.parar());
+  server.vigilante = vigilante;
+  return server;
 }
 
 /**

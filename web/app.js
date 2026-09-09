@@ -98,7 +98,45 @@ createApp({
 
     const volver = () => { abierta.value = null; mensajes.value = []; cargarLista(); };
 
-    onMounted(cargarLista);
+    /** Traer sólo lo que falta de la conversación abierta, sin recargarla entera:
+     *  reemplazarla haría saltar el scroll cada vez que llega un mensaje. */
+    async function refrescarAbierta() {
+      const r = await api(`/api/sesiones/${encodeURIComponent(abierta.value)}/mensajes`);
+      const tengo = new Set(mensajes.value.map((m) => m.id));
+      const nuevos = r.mensajes.filter((m) => !tengo.has(m.id));
+      if (!nuevos.length) return;
+      // Sólo se baja del todo si ya estabas abajo. Si estabas leyendo algo de
+      // más arriba, un mensaje nuevo no puede robarte el sitio.
+      const abajo = window.scrollY + window.innerHeight > document.body.scrollHeight - 120;
+      mensajes.value = [...mensajes.value, ...nuevos];
+      if (abajo) requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+    }
+
+    /**
+     * El aviso en vivo. SSE **reconecta solo**, que en un móvil que entra y sale
+     * de cobertura es la mitad del valor — por eso no hay ningún reintento
+     * escrito aquí: lo hace el navegador con el `retry` que manda el servidor.
+     *
+     * ⚠ Lo que llega es «algo cambió», no los mensajes: entonces se piden por la
+     * API de siempre. Así hay una sola forma de leer un mensaje en vez de dos que
+     * pueden divergir.
+     */
+    function escuchar() {
+      const es = new EventSource('/api/eventos');
+      es.addEventListener('cambio', async (ev) => {
+        try {
+          const d = JSON.parse(ev.data);
+          coordinador.value = {
+            ...coordinador.value, vivo: d.coordinador.vivo, hay: d.coordinador.hay,
+            turnos: Object.fromEntries((d.coordinador.turnos ?? []).map((s) => [s, true])),
+          };
+          if (abierta.value) await refrescarAbierta();
+          else await cargarLista();
+        } catch { /* un evento mal formado no puede romper la pantalla */ }
+      });
+    }
+
+    onMounted(() => { cargarLista(); escuchar(); });
 
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,

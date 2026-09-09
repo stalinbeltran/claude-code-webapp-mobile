@@ -283,3 +283,32 @@ test('una sesión con turno en curso sale como pendiente', async () => {
     assert.equal(cuerpo.sesiones[0].pendiente, true);
   } finally { await s.cerrar(); }
 });
+
+// -------------------------------------------------- 7. el aviso en vivo (SSE)
+
+test('/api/eventos abre un stream y manda el estado de entrada', async () => {
+  const raiz = mkdtempSync(join(tmpdir(), 'cweb-sse-'));
+  mkdirSync(join(raiz, 'mensajes'), { recursive: true });
+  const s = await levantar(raiz);
+  try {
+    const ctrl = new AbortController();
+    const r = await fetch(`http://${HOST}:${s.puerto}/api/eventos`, { signal: ctrl.signal });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/event-stream/);
+
+    const lector = r.body.getReader();
+    const primero = new TextDecoder().decode((await lector.read()).value);
+    assert.match(primero, /retry: \d+/, 'el navegador tiene que saber cada cuánto reintentar');
+    assert.match(primero, /event: cambio\ndata: /);
+
+    // Y cuando aparece un mensaje, llega el aviso — por el sondeo o por el
+    // watcher, da igual cuál: lo que se prueba es que llega.
+    writeFileSync(join(raiz, 'mensajes', '-100_7.jsonl'),
+      JSON.stringify({ id: 'a', ts: '2026-09-09T21:00:00Z', sesion: '-100_7',
+        autor: 'usuario', origen: 'telegram', texto: 'hola' }) + '\n');
+    const aviso = new TextDecoder().decode((await lector.read()).value);
+    assert.match(aviso, /-100_7/, 'el aviso tiene que nombrar la sesión que cambió');
+
+    ctrl.abort();
+  } finally { await s.cerrar(); }
+});
