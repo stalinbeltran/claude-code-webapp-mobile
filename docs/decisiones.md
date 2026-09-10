@@ -11,7 +11,7 @@ empezar a escribir código.
 |---|---|
 | [P1](#p1--dentro-del-proceso-o-servicio-aparte) | ✅ **servicio aparte** (opción B) |
 | [P2](#p2--en-qué-interfaz-escucha) | ✅ **sólo `127.0.0.1`** |
-| [P3](#p3--tailscale-y-sobrevivir-a-que-se-destruya-el-dev) | ✅ **tiene que sobrevivir al dev y relanzarse desde el mini** — factible, con tres pegas. ⚠⚠ **La primera PASÓ el 2026-09-10** y no dura 30-60 min: los nodos viejos no se borran nunca |
+| [P3](#p3--tailscale-y-sobrevivir-a-que-se-destruya-el-dev) | ✅ **tiene que sobrevivir al dev y relanzarse desde el mini** — factible, con tres pegas. ⚠ **La primera PASÓ el 2026-09-10**, pero no por la authkey (que sí es efímera): la bloqueaba un nodo heredado de antes del mecanismo |
 | [P4](#p4--qué-ejecutores-entran-en-el-log) | ✅ **sólo `c`** — implementado como **dato**, no cableado |
 | [P5](#p5--se-redacta-el-log) | ✅ **sí, se redacta** |
 | [P6](#p6--por-dónde-entra-un-mensaje-de-la-web) | ✅ **fichero de entrada + eco a Telegram**, para ver la misma conversación en los dos sitios |
@@ -82,11 +82,11 @@ relanzarse desde el mini.**
 ⚠ Y el puerto: el **443 lo tiene `sshd` en `0.0.0.0`** en esta máquina (medido),
 o sea también en la interfaz de la tailnet. Se usa `tailscale serve --https=<otro>`.
 
-### ⚠⚠ MEDIDO el 2026-09-10: la primera pega PASÓ, y no dura 30-60 min
+### ⚠⚠ MEDIDO el 2026-09-10: la primera pega PASÓ — y la causa NO era la authkey
 
 La tabla de arriba daba la limpieza del nodo por *«30-60 min»*, leída de la
-documentación y marcada como **NO medida**. Medida ahora, es peor: **los nodos
-viejos no se borran nunca**. `tailscale status` en el dev del 2026-09-10:
+documentación y marcada como **NO medida**. Medida ahora: **~75 min**, y funciona.
+`tailscale status` en el dev del 2026-09-10, a las 17:36 UTC:
 
 | nodo | estado |
 |---|---|
@@ -94,9 +94,33 @@ viejos no se borran nunca**. `tailscale status` en el dev del 2026-09-10:
 | `dev-2`, `dev-3` | apagados hacía 1 h, todavía registrados |
 | `dev-1` | **el vivo** — o sea que éste entró sufijado |
 
-O sea que **la authkey en uso no es `Ephemeral`**, que es justo el ajuste que
-[`.env.example`](../.env.example) marca como obligatorio y por este motivo. Un
-nodo efímero desaparece solo; éstos no.
+⚠⚠ **Y la primera lectura de esto fue EQUIVOCADA, así que queda anotada.** Se
+concluyó *«la authkey en uso no es `Ephemeral`»* — razonable, y falsa. Lo que
+faltaba era **mirar otra vez un rato después**:
+
+| hora (UTC) | qué se vio |
+|---|---|
+| 17:36 | cuatro nodos `dev`: el vivo (`dev-1`) y tres apagados |
+| **17:52** | **`dev-2` y `dev-3` habían DESAPARECIDO solos** — nadie los borró |
+
+Se cayeron a las 16:37, o sea que tardaron **~75 min**. Eso es exactamente lo que
+hace un nodo efímero: **la clave en uso sí lo es y funciona.**
+
+El único que no se va es el **`dev` original**, apagado desde las 02:35 y todavía
+registrado 15 h después. Se unió **antes de que existiera `tailscale-unir.mjs`**
+(commiteado a la 01:28 de ese día; el nodo ya estaba dentro a las 00:41, por el
+enlace de login), y un nodo que entra así no es efímero.
+
+**O sea: un resto de una vez, no una configuración mal puesta.** Se borra una vez
+y el nombre queda libre para siempre, porque todo lo que entra desde entonces se
+limpia solo.
+
+⚠ **La lección, que es la que se repite:** *«los nodos viejos no se borran»* y
+*«este nodo viejo no se borra»* se parecen mucho y llevan a arreglos distintos —
+uno manda a cambiar la clave (que aquí no habría arreglado nada) y el otro a
+borrar un nodo. Lo que los distingue es **cuánto lleva muerto**, y eso se sabe
+esperando, no razonando. Una medida tomada **una sola vez** no distingue «no pasa
+nunca» de «todavía no ha pasado».
 
 **Lo que costó**, y es exactamente lo que la pega predecía: la PWA instalada en
 el móvil apuntaba a `https://dev.<tailnet>:8443/`, MagicDNS lo seguía resolviendo
@@ -108,7 +132,8 @@ perfecto**: contestaba 200 por `dev-1`.
 desde el mini`) sigue SIN implementar.** Vive en el repo del lanzador, no en
 éste. Mientras no esté, hacen falta las dos cosas:
 
-1. **Que la authkey sea `Ephemeral`** — quita la causa en el caso normal.
+1. **Que la authkey sea `Ephemeral`** — ya lo es, comprobado arriba. Cubre el
+   caso normal: cada dev destruido se borra solo en ~1 h.
 2. **Que el nodo nuevo AVISE si no consiguió su nombre** — cubre el caso en que
    aun así pase. Implementado el 2026-09-10 en `scripts/nodo.mjs`, y lo usan
    `tailscale-unir.mjs` (al aprovisionar, con aviso por Telegram) y `cweb url`

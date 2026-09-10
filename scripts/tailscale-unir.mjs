@@ -11,8 +11,14 @@
 // la PWA instalada— deja de resolver, sin decir por qué.
 //
 // ⚠⚠ LA AUTHKEY NO SE IMPRIME NUNCA. Ni en un `echo`, ni en un error, ni en el
-// log de la unidad. Este proyecto ya filtró un token una vez; y `sudo` escribe en
-// el journal lo que le pasas, así que la clave va por el ENTORNO del proceso.
+// log de la unidad. Este proyecto ya filtró un token una vez.
+//
+// ⚠⚠ Y «va por el entorno» NO BASTABA — decía eso y filtraba igual, medido el
+// 2026-09-10. `execSync` lanza con `/bin/sh -c`, así que el shell expandía
+// `"$TS_AUTHKEY"` **antes** de que `sudo` existiera y la clave acababa en el
+// `COMMAND=` del journal; y `--preserve-env` la escribía otra vez en el `ENV=`.
+// Ahora viaja en un fichero 0600 que se borra siempre: ver `ordenDeUnir()` en
+// `nodo.mjs`, donde está el detalle y el porqué.
 //
 // ⚠ Y NO ABORTA si falta la authkey. Corre dentro del aprovisionamiento: hacer
 // fallar todo el `install` porque falte una clave dejaría el droplet a medias por
@@ -20,10 +26,11 @@
 // con un defecto declarado, no fallar a mitad).
 
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { avisoDeDeriva, nombreCorto } from './nodo.mjs';
+import { avisoDeDeriva, nombreCorto, ordenDeUnir } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
@@ -97,10 +104,23 @@ if (!e.dentro) {
     process.exit(0);   // no aborta el aprovisionamiento por esto
   }
   console.log(`[tailscale] uniendo como "${NOMBRE}"…`);
-  // La clave viaja por el ENTORNO, nunca en la línea de comando: `sudo` deja en
-  // el journal lo que le pasas como argumento.
-  const r = sh(`sudo -n --preserve-env=TS_AUTHKEY tailscale up --authkey="$TS_AUTHKEY" ` +
-    `--hostname=${NOMBRE} --accept-dns=false`, { ...process.env, TS_AUTHKEY: clave });
+  // La clave va a un fichero 0600 y `tailscale` la lee de ahí. Nada que expandir
+  // en el shell, nada que preservar en el entorno: `sudo` no la ve y no la
+  // registra. `root` lo lee igual (se salta los permisos), que es lo que hace
+  // falta porque `tailscale up` corre como root.
+  //
+  // ⚠ Su regla de caducidad, escrita al lado (regla 3): se borra en el `finally`,
+  // pase lo que pase. Si aun así sobrevive a un SIGKILL, muere con la máquina:
+  // vive bajo `os.tmpdir()`, en un directorio propio 0700 y con nombre aleatorio.
+  let dir = null, r;
+  try {
+    dir = mkdtempSync(join(tmpdir(), 'tsjoin-'));
+    const f = join(dir, 'authkey');
+    writeFileSync(f, clave, { mode: 0o600 });
+    r = sh(ordenDeUnir(f, NOMBRE));
+  } finally {
+    if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* se va con la máquina */ } }
+  }
   if (!r.ok) {
     // Y el error tampoco puede llevarla dentro.
     console.error(`[tailscale] no pude unir el nodo:\n${r.out.split(clave).join('«CLAVE»').slice(-500)}`);

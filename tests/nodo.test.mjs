@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { nombreCorto, hayDeriva, avisoDeDeriva } from '../scripts/nodo.mjs';
+import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir } from '../scripts/nodo.mjs';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -85,4 +85,56 @@ test('⚠ y el aviso del script NO puede tumbar el aprovisionamiento', () => {
   assert.match(s, /function avisar[\s\S]{0,400}catch/,
     'el aviso va envuelto en try/catch: es una comodidad, no puede matar el trabajo');
   assert.ok(!/process\.exit\([^0]/.test(s), 'este script sale siempre con 0');
+});
+
+// ---------------------------------------------------------------------------
+// La authkey: que unirse NO la deje escrita en el journal.
+//
+// ⚠⚠ MEDIDO EL 2026-09-10, y es el fallo más caro de este fichero: el script
+// DECÍA en su cabecera que la clave «va por el ENTORNO, nunca en la línea de
+// comando»… y la filtraba igual, dos veces en la misma línea del journal. La
+// protección estaba escrita en el comentario y no en el código, que es la peor
+// combinación posible: se lee como resuelto y nadie vuelve a mirarlo.
+// ---------------------------------------------------------------------------
+
+test('⚠⚠ la orden de unir NO contiene la clave por ningún lado', () => {
+  const clave = 'tskey-auth-FALSAFALSA1234-FALSAFALSAFALSAFALSA';
+  const orden = ordenDeUnir('/tmp/tsjoin-xyz/authkey', 'dev');
+  assert.ok(!orden.includes(clave), 'la clave no puede viajar en `argv`: sudo lo registra entero');
+  assert.match(orden, /--auth-key=file:/, 'se pasa la RUTA, y tailscale la lee de ahí');
+  assert.match(orden, /--hostname=dev/);
+});
+
+test('⚠⚠ y no la mete por la otra puerta: `$TS_AUTHKEY` ni `--preserve-env`', () => {
+  // Los dos filtraban, y por mecanismos distintos:
+  //  · `"$TS_AUTHKEY"` lo expande /bin/sh ANTES de que sudo exista -> `COMMAND=`
+  //  · `--preserve-env=TS_AUTHKEY` hace que sudo registre `ENV=TS_AUTHKEY=<clave>`
+  const orden = ordenDeUnir('/tmp/x/authkey', 'dev');
+  assert.ok(!orden.includes('$TS_AUTHKEY'),
+    'una variable en la orden la expande el shell antes que sudo: acaba en el journal');
+  assert.ok(!orden.includes('preserve-env'),
+    'sudo escribe en claro las variables que le pides preservar');
+});
+
+test('⚠⚠ el script tampoco las usa: es donde estaba el fallo real', () => {
+  const s = readFileSync(join(RAIZ, 'scripts', 'tailscale-unir.mjs'), 'utf8');
+  // ⚠ Se miran las líneas que LANZAN algo, no el fichero entero: los comentarios
+  // de arriba nombran `--preserve-env` justo para explicar por qué no se usa, y
+  // un test que casara con eso prohibiría documentar el fallo.
+  const lanzan = s.split('\n').filter((l) => /sudo\s+-n/.test(l) && !/^\s*(\/\/|\*)/.test(l));
+  assert.ok(lanzan.length > 0, 'algo tiene que lanzarse con sudo, o este test no mide nada');
+  for (const l of lanzan) {
+    assert.ok(!l.includes('preserve-env'),
+      `sudo deja \`ENV=TS_AUTHKEY=<clave>\` en el journal — en: ${l.trim()}`);
+    assert.ok(!l.includes('$TS_AUTHKEY'),
+      `/bin/sh lo expande antes que sudo y acaba en el \`COMMAND=\` — en: ${l.trim()}`);
+  }
+  assert.match(s, /ordenDeUnir\(/, 'la orden se construye en un sitio que se puede probar');
+});
+
+test('⚠ y el fichero de la clave lleva su regla de caducidad (regla 3)', () => {
+  const s = readFileSync(join(RAIZ, 'scripts', 'tailscale-unir.mjs'), 'utf8');
+  assert.match(s, /mode: 0o600/, 'un fichero con una clave no puede nacer legible por todos');
+  assert.match(s, /finally[\s\S]{0,200}rmSync/,
+    'se borra pase lo que pase: un secreto en disco sin dueño vivo es el fallo del .resume.lock');
 });

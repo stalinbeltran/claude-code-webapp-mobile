@@ -83,14 +83,24 @@ está perfecto. **La app ya no dice sólo `Failed to fetch`**: nombra el origen
 contra el que falló, avisa de que lo que ves viene de la caché, y da las dos
 causas (Tailscale apagado en el móvil · la máquina cambió de nombre).
 
-**Cómo se arregla del todo**, y hay que hacer los tres pasos o vuelve a pasar:
+**Cómo se arregla**, y es una vez:
 
 1. Borra los nodos apagados que se llamen `dev` en
    [la consola](https://login.tailscale.com/admin/machines).
 2. `node scripts/tailscale-unir.mjs` para reclamar el nombre.
-3. ⚠ **La causa de fondo es la authkey: tiene que ser `Ephemeral`**
-   ([`.env.example`](.env.example) lo pide, y por esto). Sin eso, cada dev
-   destruido deja un nodo muerto ocupando el nombre.
+
+⚠ **NO era la authkey, aunque es lo primero que se piensa** — y conviene saberlo
+antes de cambiarla, porque cambiarla no habría arreglado nada. Medido el mismo
+día: dos nodos que se cayeron a las 16:37 **se borraron solos** hacia las 17:52.
+Eso es lo que hace un nodo efímero, así que la clave en uso **sí lo es y
+funciona**. El que bloqueaba el nombre era **uno solo y de antes**: el `dev`
+original, unido por enlace de login cuando este script todavía no existía, y por
+tanto no efímero. Se borra una vez y ya.
+
+**La regla para la próxima**, que es lo que distingue los dos casos: **mira
+cuánto lleva muerto el nodo que estorba.** Menos de una hora, espera. Horas o
+días, es un resto de antes: bórralo. Sólo si un nodo recién caído sigue ahí al
+día siguiente es que la clave no es `Ephemeral`.
 
 Mientras tanto la URL con sufijo funciona: sólo hay que reinstalar la PWA desde
 ella. **Y `tailscale-unir.mjs` ya no se calla**: compara el nombre que pidió con

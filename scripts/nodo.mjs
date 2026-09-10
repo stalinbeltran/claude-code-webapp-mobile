@@ -1,5 +1,10 @@
-// El NOMBRE del nodo en la tailnet, que es lo que hace que la PWA instalada en
-// el móvil siga funcionando cuando se rehace la máquina.
+// El nodo en la tailnet: qué NOMBRE consigue, y cómo se une SIN filtrar la clave.
+//
+// Lo primero es lo que hace que la PWA instalada en el móvil siga funcionando
+// cuando se rehace la máquina. Lo segundo es que unirse no deje la authkey
+// escrita en el journal — y las dos viven aquí porque las dos son «cómo entra
+// este nodo», y las dos se comprueban sobre un dato, no sobre un código de
+// salida.
 //
 // Por qué esto existe, medido el 2026-09-10
 // -----------------------------------------
@@ -21,9 +26,17 @@
 // cliente instalado acababa de quedarse fuera. Lo único que lo delataba era un
 // dato que nadie miraba: el nombre que de verdad te dieron.
 //
-// La causa de fondo es la authkey: `.env.example` pide que sea **Ephemeral**
-// justo para que el nodo muerto se borre solo y el nombre quede libre. Si los
-// nodos viejos sobreviven, no lo es.
+// ⚠ Y LA CAUSA NO ERA LA AUTHKEY, que es lo primero que se piensa. Medido ese
+// mismo día: `dev-2` y `dev-3` **se borraron solos** entre las 17:36 y las 17:52
+// UTC, ~75 min después de caerse. Eso es exactamente lo que hace un nodo
+// efímero, así que la clave en uso SÍ lo es y funciona.
+//
+// El que bloqueaba el nombre era **uno solo**: el `dev` original, apagado desde
+// las 02:35 y todavía registrado 15 h después. Se unió ANTES de que existiera
+// este mecanismo (`tailscale-unir.mjs` es de la 01:28 de ese día; el nodo ya
+// estaba dentro a las 00:41, por el enlace de login), y un nodo que entra así no
+// es efímero. O sea: un resto de una vez, no una configuración mal puesta —
+// se borra una vez y el nombre queda libre para siempre.
 
 /** `dev-1.ejemplo.ts.net.` → `dev-1`. Vale para el DNSName o para el nombre a secas. */
 export function nombreCorto(dns) {
@@ -64,11 +77,46 @@ export function avisoDeDeriva(pedido, dns, puertoTs = '8443') {
     `La URL que SÍ funciona ahora:\n` +
     `  https://${completo}:${puertoTs}/\n` +
     `\n` +
-    `Para recuperar "${pedido}" y que esto no vuelva a pasar:\n` +
+    `Para recuperar "${pedido}":\n` +
     `  1. Borra los nodos apagados que se llaman "${pedido}" en\n` +
     `     https://login.tailscale.com/admin/machines\n` +
     `  2. Vuelve a unir este nodo:  node scripts/tailscale-unir.mjs\n` +
-    `  3. La causa de fondo es la authkey: tiene que ser EPHEMERAL (ver\n` +
-    `     .env.example). Si no lo es, cada dev destruido deja un nodo muerto\n` +
-    `     ocupando el nombre, y el siguiente vuelve a entrar sufijado.`;
+    `\n` +
+    `⚠ Antes de tocar la authkey, MIRA cuánto lleva muerto el que estorba. Un\n` +
+    `nodo efímero se borra solo en ~1 h; si el que bloquea lleva ahí horas, no\n` +
+    `entró con la clave de hoy — es un resto de antes, y se borra UNA vez. Sólo\n` +
+    `si un nodo recién caído sigue registrado al día siguiente es que la clave\n` +
+    `no es EPHEMERAL (ver .env.example).`;
+}
+
+
+/**
+ * La orden con la que este nodo se une, dada la RUTA de un fichero que contiene
+ * la clave. La clave **no aparece**: ni aquí, ni en `argv`, ni en el entorno que
+ * `sudo` preserva.
+ *
+ * ⚠⚠ POR QUÉ UN FICHERO Y NO UNA VARIABLE, medido el 2026-09-10.
+ * La versión anterior decía pasar la clave «por el ENTORNO, nunca en la línea de
+ * comando» y hacía esto:
+ *
+ *     sudo -n --preserve-env=TS_AUTHKEY tailscale up --authkey="$TS_AUTHKEY" …
+ *
+ * y filtraba la clave DOS veces en la misma línea del journal:
+ *
+ *   1. `execSync` lanza con `/bin/sh -c`, así que **el shell expande `"$TS_AUTHKEY"`
+ *      ANTES de que `sudo` exista**. Lo que sudo recibe en `argv` es la clave
+ *      literal, y sudo escribe el `COMMAND=` entero en el journal.
+ *   2. `--preserve-env=TS_AUTHKEY` hace que sudo registre además `ENV=TS_AUTHKEY=<clave>`.
+ *
+ * O sea que la protección estaba escrita en el comentario y no en el código, que
+ * es la peor combinación: se lee como resuelto. Quedó en claro en el journal —
+ * que aquí es **persistente** (`/var/log/journal`)— en el aprovisionamiento de
+ * esta máquina.
+ *
+ * `tailscale up --auth-key file:<ruta>` (soportado, comprobado en la 1.102.3)
+ * quita las dos: no hay nada que expandir ni nada que preservar.
+ */
+export function ordenDeUnir(rutaClave, nombre) {
+  return `sudo -n tailscale up --auth-key=file:${rutaClave} ` +
+    `--hostname=${nombre} --accept-dns=false`;
 }
