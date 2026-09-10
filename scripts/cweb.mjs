@@ -98,18 +98,34 @@ function estado() {
   return viva ? 0 : 1;
 }
 
+/**
+ * La dirección desde la que se llega, LEÍDA del estado real de `tailscale serve`.
+ *
+ * ⚠⚠ No se compone a mano, y ésta es la razón: la primera versión devolvía
+ * `https://<nodo>/` porque dio por hecho el puerto 443 — y aquí el 443 lo tiene
+ * `sshd`, así que el serve está en el 8443. Esa URL **parecía correcta y no
+ * cargaba**: abrirla desde el móvil se lee como «la web está rota», que es el
+ * peor sitio donde poner un error. Medido el 2026-09-10.
+ *
+ * La regla, que vale para todo este script: se PREGUNTA por el estado, no se
+ * supone. Aquí es literalmente lo que `tailscale serve status` imprime.
+ */
 function url() {
-  const ts = sh('tailscale status --json 2>/dev/null');
-  if (ts.startsWith('{')) {
-    try {
-      const nombre = JSON.parse(ts).Self?.DNSName?.replace(/\.$/, '');
-      if (nombre) return `Desde el móvil (con Tailscale activo):\n  https://${nombre}/`;
-    } catch { /* se cae al mensaje de abajo */ }
+  const s = sh('tailscale serve status 2>/dev/null');
+  const publicada = (s.match(/https:\/\/\S+/) || [])[0];
+  if (publicada) {
+    return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/`;
   }
+  const nodo = sh('tailscale status --json 2>/dev/null');
+  const dentro = nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo);
   return 'Desde el móvil: todavía NO se puede llegar.\n' +
     '  Escucha sólo en loopback a propósito (quien alcance este puerto tiene\n' +
-    '  shell en esta máquina). Falta Tailscale: ver docs/decisiones.md, P3.\n' +
-    `  Mientras tanto, por túnel SSH:  ssh -L ${PUERTO}:127.0.0.1:${PUERTO} <esta-máquina>`;
+    '  shell en esta máquina).\n' +
+    (dentro
+      ? '  El nodo SÍ está en la tailnet, pero no hay ningún `serve` puesto.\n' +
+        '  Ponlo con:  tailscale   (esta misma sesión)\n'
+      : '  Y este server aún no está en la tailnet: ver docs/decisiones.md, P3.\n') +
+    `  Por túnel SSH mientras tanto:  ssh -L ${PUERTO}:127.0.0.1:${PUERTO} <esta-máquina>`;
 }
 
 const orden = (process.argv[2] || '').trim().toLowerCase() || 'estado';
@@ -124,8 +140,14 @@ switch (orden) {
     // Relanza el configurador. Hace falta poder hacerlo DESDE TELEGRAM: la
     // primera vez suele faltar un permiso en la tailnet, y quien lo da está en
     // el móvil, no delante de la máquina.
-    const r = sh(`sudo -n systemctl start ts-serve 2>&1; sleep 8; tail -12 /tmp/ts-serve.log`);
-    console.log(r || '(sin salida: mira `systemctl status ts-serve`)');
+    //
+    // ⚠ Se EJECUTA el script, no se arranca una unidad. La primera versión hacía
+    // `systemctl start ts-serve`, y esa unidad es transitoria (`systemd-run`): en
+    // cuanto termina, deja de existir. El `start` fallaba, el `tail` enseñaba el
+    // log VIEJO, y parecía que había reintentado cuando no había hecho nada.
+    // Medido el 2026-09-10, y costó una vuelta entera.
+    const r = sh(`node ${join(RAIZ, 'scripts', 'tailscale-serve.mjs')} --esperar 1 2>&1`);
+    console.log(r || '(sin salida)');
     break;
   }
   default:
