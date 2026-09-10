@@ -1,1 +1,6 @@
 node_modules/
+
+# Secretos. NUNCA en git: este repo es publico y la app lee TS_AUTHKEY de aqui.
+.env
+.env.*
+!.env.example
