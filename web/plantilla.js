@@ -17,6 +17,7 @@ export const PLANTILLA = `
     <header>
       <button v-if="abierta" class="atras" @click="volver">‹ Atrás</button>
       <h1>{{ abierta ? nombre : 'Conversaciones' }}</h1>
+      <span v-if="abierta && ejecutor.nombre" class="quien-atiende">{{ ejecutor.nombre }}</span>
       <span class="estado" v-if="!abierta && sesiones.length">{{ sesiones.length }}</span>
     </header>
 
@@ -42,6 +43,7 @@ export const PLANTILLA = `
           <span class="extracto">{{ s.ultimo?.extracto || '(sin mensajes)' }}</span>
           <span class="cuantos">
             {{ s.mensajes }} mensaje(s)
+            <span v-if="s.ejecutor?.nombre">· lo atiende <b>{{ s.ejecutor.nombre }}</b></span>
             <span v-if="s.pendiente" class="pendiente">· ⏳ esperando respuesta</span>
           </span>
         </button>
@@ -67,16 +69,22 @@ export const PLANTILLA = `
     <!-- Escribir. Va FUERA del main y pegado abajo: en un móvil, el sitio donde
          se escribe no puede depender de dónde esté el scroll. -->
     <footer v-if="abierta">
+      <!-- Lo que escribas aquí va al ejecutor LIGADO al tema, no a claude
+           siempre. Decirlo en el sitio donde escribes es lo que evita mandarle a
+           otro ejecutor algo pensado para claude. -->
+      <div v-if="avisoEjecutor" class="aviso-caja">{{ avisoEjecutor }}</div>
+      <div class="fila-caja">
       <textarea
         v-model="borrador"
-        :disabled="enviando"
+        :disabled="enviando || !ejecutor.nombre"
         rows="1"
-        placeholder="Escribe a claude…"
+        :placeholder="ejecutor.nombre ? 'Escribe a ' + ejecutor.nombre + '…' : 'Sin sesión abierta en este tema'"
         @keydown.enter.exact.prevent="enviar"
         @input="crecer"
         ref="caja"></textarea>
-      <button class="enviar" :disabled="!borrador.trim() || enviando" @click="enviar">
+      <button class="enviar" :disabled="!borrador.trim() || enviando || !ejecutor.nombre" @click="enviar">
         {{ enviando ? '…' : 'Enviar' }}
       </button>
+      </div>
     </footer>
   `;

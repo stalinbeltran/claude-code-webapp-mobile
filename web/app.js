@@ -79,6 +79,7 @@ createApp({
       try {
         const r = await api(`/api/sesiones/${encodeURIComponent(sesion)}/mensajes`);
         mensajes.value = r.mensajes; hayMas.value = r.hay_mas;
+        ejecutor.value = r.ejecutor ?? { nombre: null, registra: null };
         requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
       } catch (e) {
         error.value = `No pude leer esta conversación: ${e.message}`;
@@ -95,6 +96,26 @@ createApp({
         hayMas.value = r.hay_mas;
       } catch (e) { error.value = e.message; }
     }
+
+    const ejecutor = ref({ nombre: null, registra: null });
+
+    /**
+     * El aviso de la caja. Los dos casos que hay que decir ANTES de escribir, no
+     * después: sin sesión el mensaje se rechaza, y con un ejecutor que no
+     * registra su conversación, lo que escribas **no se verá aquí** — su
+     * respuesta va sólo a Telegram, y escribir sin ver nada se lee como que la
+     * app está rota.
+     */
+    const avisoEjecutor = computed(() => {
+      const e = ejecutor.value;
+      if (!e.nombre) return '⚠ Este tema no tiene ninguna sesión abierta. ' +
+        'Ábrela desde Telegram con /use c y vuelve.';
+      if (e.registra === false) return `⚠ Aquí atiende «${e.nombre}», y sus respuestas ` +
+        'NO se ven en esta app: sólo se registra la conversación de `c`. Míralas en Telegram.';
+      if (e.registra === null) return `⚠ Aquí atiende «${e.nombre}». No sé si sus respuestas ` +
+        'se registran aquí (lo declara otro repo); si no aparecen, míralas en Telegram.';
+      return '';
+    });
 
     const borrador = ref('');
     const enviando = ref(false);
@@ -173,7 +194,13 @@ createApp({
             ...coordinador.value, vivo: d.coordinador.vivo, hay: d.coordinador.hay,
             turnos: Object.fromEntries((d.coordinador.turnos ?? []).map((s) => [s, true])),
           };
-          if (abierta.value) await refrescarAbierta();
+          if (abierta.value) {
+            await refrescarAbierta();
+            // El ejecutor puede cambiar mientras miras: un `/use c` desde
+            // Telegram tiene que verse aquí sin recargar.
+            const r = await api(`/api/sesiones/${encodeURIComponent(abierta.value)}/mensajes?limite=1`);
+            ejecutor.value = r.ejecutor ?? ejecutor.value;
+          }
           else await cargarLista();
         } catch { /* un evento mal formado no puede romper la pantalla */ }
       });
@@ -191,7 +218,7 @@ createApp({
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
       coordinador, avisoCoordinador, pendienteAqui,
-      borrador, enviando, caja, enviar, crecer,
+      borrador, enviando, caja, enviar, crecer, ejecutor, avisoEjecutor,
       abrir, volver, masAntiguos, cuando, AUTOR,
       render: (t) => md.render(String(t ?? '')),
       esCorte: (m) => m.autor === 'sistema' && m.origen === 'creset',

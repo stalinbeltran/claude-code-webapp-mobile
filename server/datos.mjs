@@ -199,3 +199,39 @@ export function encolarEnvio(raiz, sesion, texto) {
   renameSync(tmp, destino);
   return { encolado: nombre };
 }
+
+/**
+ * Qué ejecutor está ligado a un tema, y si su conversación se registra aquí.
+ *
+ * ⚠ Por qué la app tiene que ENSEÑARLO. Un mensaje escrito aquí entra por el
+ * MISMO camino que uno de Telegram, así que lo atiende el ejecutor que esté
+ * ligado al tema — no `c` siempre. Eso es lo correcto (si la app usara otro
+ * ejecutor, el mismo tema se comportaría distinto según por dónde escribas), pero
+ * deja al usuario teniendo que RECORDAR cuál está activo. Pasó el 2026-09-10:
+ * escribió desde la app con `repetir` abierto y le contestó `repetir`.
+ *
+ * Recordarlo no es un mecanismo. Enseñarlo, sí.
+ *
+ * ⚠ Y `registra` importa tanto como el nombre: sólo `c` deja rastro en el log
+ * (decisión P4), así que **lo que escribas a cualquier otro ejecutor no se verá
+ * en esta app** — su respuesta va sólo a Telegram. Escribir y no ver nada se lee
+ * como que la app está rota.
+ *
+ * @returns {{nombre:string|null, registra:boolean|null}} `registra: null` = no se
+ *   pudo saber (el ejecutor lo declara otro repo y su JSON no está aquí). No se
+ *   supone: se dice que no se sabe.
+ */
+export function ejecutorDe(raiz, sesion) {
+  const f = join(raiz, 'sessions', `${String(sesion).replace(/[^\w.-]/g, '_')}.json`);
+  if (!existsSync(f)) return { nombre: null, registra: null };
+  let nombre = null;
+  try { nombre = JSON.parse(readFileSync(f, 'utf8')).executor ?? null; } catch { /* corrupto */ }
+  if (!nombre) return { nombre: null, registra: null };
+
+  // El JSON del ejecutor sólo está aquí si lo declara el propio coordinador; los
+  // federados viven en el repo que los trae y este proceso no los ve.
+  const def = join(raiz, 'executors', `${nombre.replace(/[^\w.-]/g, '_')}.json`);
+  if (!existsSync(def)) return { nombre, registra: null };
+  try { return { nombre, registra: JSON.parse(readFileSync(def, 'utf8')).registrar === true }; }
+  catch { return { nombre, registra: null }; }
+}

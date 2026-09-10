@@ -162,7 +162,7 @@ main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
    sitio donde se escribe no puede depender de dónde esté el scroll. */
 footer {
   position: sticky; bottom: 0;
-  display: flex; gap: .5rem; align-items: flex-end;
+  display: flex; flex-direction: column; gap: .4rem;
   padding: .6rem .8rem; padding-bottom: max(.6rem, env(safe-area-inset-bottom));
   background: var(--panel); border-top: 1px solid var(--borde);
 }
@@ -180,3 +180,15 @@ footer textarea:disabled { opacity: .6; }
 .enviar:disabled { opacity: .45; cursor: default; }
 /* El main deja sitio para que el último mensaje no quede bajo la barra. */
 main { padding-bottom: .5rem; }
+
+/* Quién atiende este tema, dicho donde se escribe. */
+.quien-atiende {
+  font-size: .74rem; color: var(--acento);
+  border: 1px solid var(--acento); border-radius: 999px; padding: .1rem .5rem;
+}
+.fila-caja { display: flex; gap: .5rem; align-items: flex-end; width: 100%; }
+.aviso-caja {
+  width: 100%; font-size: .8rem; line-height: 1.35;
+  color: var(--aviso); background: rgba(240,180,41,.12);
+  border: 1px solid var(--aviso); border-radius: 8px; padding: .4rem .6rem;
+}

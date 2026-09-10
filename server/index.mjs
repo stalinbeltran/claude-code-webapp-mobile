@@ -28,7 +28,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { listarSesiones, leerMensajes, leerLatido, encolarEnvio, PAGINA } from './datos.mjs';
+import { listarSesiones, leerMensajes, leerLatido, encolarEnvio, ejecutorDe, PAGINA } from './datos.mjs';
 import { crearVigilante } from './eventos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
@@ -130,8 +130,14 @@ export function crearServidor(raiz) {
         // saber todavía si el bot está vivo, que es justo lo que hay que decir
         // antes de que el usuario crea que claude no le contesta.
         coordinador: latido,
-        sesiones: listarSesiones(raiz)
-          .map((s) => ({ ...s, pendiente: Boolean(latido.turnos[s.sesion]) })),
+        sesiones: listarSesiones(raiz).map((s) => ({
+          ...s,
+          pendiente: Boolean(latido.turnos[s.sesion]),
+          // Qué ejecutor lo atiende: lo que escribas aquí va a ÉSE, no a `c`
+          // siempre. Enseñarlo es la diferencia entre un dato y algo que
+          // recordar.
+          ejecutor: ejecutorDe(raiz, s.sesion),
+        })),
       });
     }
 
@@ -166,10 +172,14 @@ export function crearServidor(raiz) {
 
     if (m) {
       const limite = Math.min(Number(url.searchParams.get('limite')) || PAGINA, 500);
-      return json(res, 200, leerMensajes(raiz, decodeURIComponent(m[1]), {
-        desde: url.searchParams.get('desde'),
-        limite,
-      }));
+      const sesion = decodeURIComponent(m[1]);
+      return json(res, 200, {
+        ejecutor: ejecutorDe(raiz, sesion),
+        ...leerMensajes(raiz, sesion, {
+          desde: url.searchParams.get('desde'),
+          limite,
+        }),
+      });
     }
 
     // Todo lo que no sea `/api/` es la app. Se sirve desde `web/`.

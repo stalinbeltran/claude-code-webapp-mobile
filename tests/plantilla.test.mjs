@@ -15,6 +15,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const RUTA = join(dirname(dirname(fileURLToPath(import.meta.url))), 'web', 'plantilla.js');
+
+// ⚠⚠ Se lee el FICHERO antes de importarlo, y no es un rodeo: un backtick dentro
+// del literal lo cierra, el módulo deja de parsearse y el `import` revienta con
+// «Unexpected identifier» — un error que no dice de qué va y que ya costó dos
+// veces (2026-09-09 y 2026-09-10). Comprobándolo sobre el texto, el fallo se lee
+// en una línea y nombra la causa.
+const fuente = readFileSync(RUTA, 'utf8');
+const dentroDelLiteral = fuente.split('export const PLANTILLA = `')[1]?.replace(/`;\s*$/, '') ?? '';
+if (dentroDelLiteral.includes('`')) {
+  throw new Error('web/plantilla.js: hay un BACKTICK dentro de PLANTILLA. ' +
+    'Cierra su propio template literal y el fichero deja de parsearse. ' +
+    'Usa comillas normales en los comentarios de dentro.');
+}
+
 const { PLANTILLA } = await import('../web/plantilla.js');
 
 /** Las que se cierran solas en HTML y no necesitan `</…>`. */
