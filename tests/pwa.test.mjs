@@ -67,3 +67,26 @@ test('todo lo que precachea el armazón EXISTE', () => {
     assert.ok(existsSync(f), `el armazón precachea ${r} y no existe: install fallaría entero`);
   }
 });
+
+test('⚠⚠ TODO módulo que importa `app.js` está en el armazón precacheado', () => {
+  // El fallo que esto caza no degrada la app: la deja EN BLANCO, y justo sin
+  // red, que es el caso para el que existe el service worker. `app.js` hace
+  // `import './x.js'`; si `x.js` no está precacheado, el import falla, Vue no
+  // monta y no se pinta ni el mensaje de error.
+  //
+  // Se comprueba genérico —leyendo los imports reales— y no con una lista, para
+  // que valga para el módulo siguiente. Descubierto al añadir `direccion.js`
+  // (2026-09-10), que es el peor de todos para olvidar: es LA salida cuando el
+  // servidor no responde.
+  const app = readFileSync(join(WEB, 'app.js'), 'utf8');
+  const locales = [...app.matchAll(/^import[^']*'(\.\/[^']+)'/gm)].map((m) => m[1]);
+  assert.ok(locales.length >= 3, 'esperaba varios imports locales; ¿cambió la forma de importar?');
+
+  const cacheadas = new Set(armazon());
+  for (const rel of locales) {
+    const ruta = rel.replace(/^\.\//, '/');
+    assert.ok(existsSync(join(WEB, ruta.replace(/^\//, ''))), `${rel} no existe en web/`);
+    assert.ok(cacheadas.has(ruta),
+      `${ruta} lo importa app.js y NO está en ARMAZON: sin red la app abriría en blanco`);
+  }
+});

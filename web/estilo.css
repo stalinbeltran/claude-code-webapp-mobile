@@ -196,3 +196,36 @@ main { padding-bottom: .5rem; }
   color: var(--aviso); background: rgba(240,180,41,.12);
   border: 1px solid var(--aviso); border-radius: 8px; padding: .4rem .6rem;
 }
+
+/* ------------------------------------------------- cambiar de servidor
+   Va PLEGADO bajo el error de red, no en un menú de ajustes: el único momento
+   en que hace falta es cuando la app no puede hablar con su servidor, y ahí es
+   donde ya estás mirando. Un ajuste que hay que ir a buscar, con la app sin
+   datos y desde un móvil, no se encuentra. */
+.servidor { margin: -.4rem 0 .9rem; }
+.servidor-caja {
+  display: flex; flex-direction: column; gap: .55rem;
+  padding: .7rem .8rem; margin-top: .5rem;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 10px;
+}
+.servidor-caja input {
+  padding: .55rem .7rem; border-radius: 10px;
+  border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+  font: inherit;
+  /* La dirección es un nombre de host: partirlo por sílabas o corregirlo
+     automáticamente es exactamente cómo se teclea mal desde un móvil. */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem;
+}
+.fila-botones { display: flex; gap: .5rem; flex-wrap: wrap; }
+.secundario {
+  padding: .55rem 1rem; border-radius: 999px;
+  border: 1px solid var(--borde); background: transparent; color: var(--texto);
+  font: inherit; cursor: pointer;
+}
+.enlace {
+  background: none; border: 0; padding: 0; font: inherit;
+  color: var(--acento); text-decoration: underline; cursor: pointer;
+}
+.pista { font-size: .8rem; color: var(--tenue); line-height: 1.4; margin: 0; }
+.pista.tenue { font-size: .74rem; opacity: .8; word-break: break-all; }
+.error-linea { font-size: .82rem; color: #ffb4b4; line-height: 1.4; margin: 0; }

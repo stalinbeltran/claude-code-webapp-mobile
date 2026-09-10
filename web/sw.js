@@ -15,11 +15,17 @@
 // conversación de ayer como si fuera de ahora es exactamente lo que el aviso de
 // «el bot parece parado» existe para evitar.
 
-const CACHE = 'armazon-v2';
+const CACHE = 'armazon-v3';
 
 // Lo mínimo para que la app arranque y pinte. Los datos NO están aquí.
+// ⚠⚠ UN MÓDULO NUEVO QUE NO ESTÉ AQUÍ ROMPE LA APP SIN RED, no la degrada:
+// `app.js` lo importa, el `import` falla, y no se monta nada — o sea pantalla en
+// blanco justo en el caso para el que existe este fichero. Y `direccion.js` es el
+// peor de todos para olvidar: es LA salida cuando el servidor no responde.
+// Al añadir uno hay que subir CACHE, o el móvil se queda con el armazón viejo.
 const ARMAZON = [
   '/', '/app.js', '/estilo.css', '/markdown.js', '/plantilla.js', '/diagnostico.js',
+  '/direccion.js',
   '/vendor/vue.esm-browser.prod.js', '/vendor/markdown-it.min.js',
   '/manifest.webmanifest', '/icono.svg',
 ];

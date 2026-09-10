@@ -22,6 +22,19 @@
 // La regla: un error de red se explica NOMBRANDO lo que se intentó alcanzar y
 // diciendo que lo que se ve es de la caché. Un mensaje que no dice contra qué
 // origen falló no se puede depurar desde un móvil.
+//
+// ⚠ Y DICE LO QUE NO SABE, no sólo lo que falló. Medido el 2026-09-10 por la
+// noche: el servidor estaba PERFECTO —nodo `dev`, serve correcto, 200 por la
+// tailnet, coordinador con latido de hace medio segundo— y el móvil estaba
+// simplemente fuera de la tailnet. Pero junto al 🔴 salía además «este
+// coordinador todavía no escribe latido», que era FALSO: no es que no escriba,
+// es que no se le pudo preguntar. Un aviso que afirma algo del servidor cuando
+// no se ha podido hablar con él manda a arreglar lo que no está roto.
+//
+// ⚠⚠ Y la causa 2 mandaba a REINSTALAR la app, que ya no hace falta: desde
+// `direccion.js` la dirección se cambia desde dentro y se guarda en el móvil. El
+// consejo caro no era equivocado, era viejo — y un consejo viejo se sigue
+// igual, porque quien lo lee no puede saber que lo es.
 
 /** Marca de «no llegué al servidor», para distinguirlo de «contestó y contestó mal». */
 export class SinRed extends Error {
@@ -49,12 +62,15 @@ export function explicarFallo(e, que, origen) {
     `Intentado contra: ${donde}\n` +
     `\n` +
     `Lo que ves es el armazón guardado en el móvil, no datos de ahora — por eso ` +
-    `la app abre y aun así no hay conversaciones.\n` +
+    `la app abre y aun así no hay conversaciones. Tampoco sé si el bot está ` +
+    `vivo: no he podido preguntárselo.\n` +
     `\n` +
     `Las dos causas, en este orden:\n` +
-    `1. Tailscale está apagado en este móvil. Enciéndelo y recarga.\n` +
+    `1. Tailscale está apagado en este móvil. Enciéndelo y recarga — es la más ` +
+    `común con diferencia, y no hay que tocar nada más.\n` +
     `2. La máquina se rehízo y CAMBIÓ DE NOMBRE en la tailnet, así que esta ` +
     `dirección apunta a un server que ya no existe. Pide la de ahora por ` +
-    `Telegram con "/use cweb" y luego "url", ábrela, y vuelve a instalar la app ` +
-    `desde ella.`;
+    `Telegram con "/use cweb" y luego "url", y escríbela aquí abajo: se guarda ` +
+    `en este móvil y la app salta sola a partir de ahora. NO hace falta ` +
+    `reinstalarla.`;
 }

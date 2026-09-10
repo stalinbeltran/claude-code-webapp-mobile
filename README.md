@@ -102,10 +102,66 @@ cuánto lleva muerto el nodo que estorba.** Menos de una hora, espera. Horas o
 días, es un resto de antes: bórralo. Sólo si un nodo recién caído sigue ahí al
 día siguiente es que la clave no es `Ephemeral`.
 
-Mientras tanto la URL con sufijo funciona: sólo hay que reinstalar la PWA desde
-ella. **Y `tailscale-unir.mjs` ya no se calla**: compara el nombre que pidió con
+**Y `tailscale-unir.mjs` ya no se calla**: compara el nombre que pidió con
 el que le dieron y avisa por Telegram si no coinciden — `Result=success` no dice
 que se hiciera lo que pediste.
+
+##### Y desde el 2026-09-10 no hace falta reinstalar la app: se le cambia la dirección
+
+Antes, la salida era «reinstala la PWA desde la URL nueva», y ése era el consejo
+caro: es justo lo que nadie hace desde el móvil cuando lo único que quería era
+leer una conversación. Ahora la dirección se cambia **desde dentro de la app**,
+se guarda en el móvil, y el origen viejo se queda como **trampolín**: su armazón
+sigue en la caché del service worker, así que el icono de siempre abre, lee la
+dirección guardada y salta.
+
+```
+(abres el icono de siempre; la máquina se rehizo y ahora es `dev-1`)
+
+app ← 🔴 No he podido hablar con el servidor.
+      Intentado contra: https://dev.tured.ts.net:8443
+      …
+      2. La máquina se rehízo y CAMBIÓ DE NOMBRE […] escríbela aquí abajo: se
+      guarda en este móvil y la app salta sola a partir de ahora. NO hace falta
+      reinstalarla.
+
+      ▸ Cambiar la dirección del servidor        ← pliegue: sólo si lo pides
+
+tú  → (en Telegram)  /use cweb   →   url
+bot ← Desde el móvil (con Tailscale activo):
+        https://dev-1.tured.ts.net:8443/
+
+tú  → (despliegas el pliegue y escribes)  dev-1.tured.ts.net:8443
+app ← [Guardar e ir]  → probando…        ← comprueba que contesta ANTES de guardar
+      (salta; a partir de aquí el icono de siempre te trae aquí)
+```
+
+Cuatro decisiones que hay que respetar si se toca, y todas tienen test
+(`tests/direccion.test.mjs`):
+
+1. **Se REDIRIGE, no se le piden los datos al otro host.** Todas las llamadas de
+   `app.js` son relativas (`/api/…`); apuntarlas a otro origen las vuelve
+   cross-origin y entonces haría falta **CORS** — o sea abrir, en una app que
+   escucha sólo en loopback a propósito, un permiso para que otro origen le lea
+   las conversaciones. Redirigiendo, en el destino todo vuelve a ser del mismo
+   origen y no hay nada que abrir.
+2. **Se comprueba que contesta ANTES de guardar**, con `fetch(…, {mode:
+   'no-cors'})` — que llega opaco, sin poder leer el status, pero **sólo lanza
+   si no se llegó**, que es lo único que hay que distinguir. Sin esto, una
+   dirección mal tecleada dejaría el icono del móvil saltando para siempre a un
+   sitio que no existe. ⚠ Y **avisa pero no bloquea** (`Ir de todos modos`),
+   como `/use` con `requiere`: mira desde este móvil y en este momento.
+3. **Hay escape: `?aqui` en la URL impide el salto**, y va antes de cualquier
+   otra comprobación. Es la salida cuando lo guardado ya no responde; una salida
+   que dependa de que el resto esté bien no es una salida.
+4. **Nunca se salta al origen en el que ya estás** — sería un bucle infinito de
+   recargas, que dejaría la app inservible sin llegar a pintar un mensaje.
+
+⚠ **Lo que esto NO puede hacer, y conviene saberlo antes de necesitarlo:** el
+móvil tiene que haber cargado **una vez con conexión** el armazón nuevo. Si la
+máquina cambia de nombre antes de eso, el móvil sigue con la versión vieja de
+`app.js` en su caché —la que no trae esta pantalla— y ahí sí toca reinstalar. No
+hay forma de evitarlo: código que nunca llegó al móvil no puede ayudarte.
 
 ## Qué se ve dentro
 

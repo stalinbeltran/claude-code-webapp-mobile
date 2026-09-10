@@ -11,6 +11,20 @@ import { createApp, ref, computed, onMounted } from './vendor/vue.esm-browser.pr
 import { crearRenderer } from './markdown.js';
 import { PLANTILLA } from './plantilla.js';
 import { SinRed, explicarFallo } from './diagnostico.js';
+import { ESCAPE, decidirArranque, leerGuardada, guardarDireccion,
+         olvidarDireccion, normalizarDireccion } from './direccion.js';
+
+// ⚠⚠ EL SALTO VA ANTES DE MONTAR NADA, y a propósito: si esta app se abrió desde
+// un origen que ya no sirve (la PWA instalada guarda un `start_url` fijo), lo
+// último que ayuda es pintar la lista vacía y el 🔴 durante un segundo antes de
+// irse. Ver `direccion.js` para por qué se salta en vez de pedirle los datos a
+// otro host.
+{
+  const guardada = leerGuardada(window.localStorage);
+  const escape = new URLSearchParams(location.search).has(ESCAPE);
+  const { ir } = decidirArranque({ guardada, origenActual: location.origin, escape });
+  if (ir) location.replace(ir);   // `replace`: no deja el origen muerto en el historial
+}
 
 // `window.markdownit` lo deja el UMD que carga index.html (no distribuye ESM).
 // La configuración vive en su propio módulo para poder probarla sin navegador.
@@ -53,7 +67,12 @@ createApp({
     const error = ref('');
     const nombre = computed(() =>
       sesiones.value.find((s) => s.sesion === abierta.value)?.nombre ?? '');
-    const coordinador = ref({ vivo: false, hay: false, turnos: {} });
+    // ⚠ `consultado` NO es un detalle: sin él, el valor inicial (`hay: false`)
+    //   se lee como «este coordinador no escribe latido», que es una afirmación
+    //   SOBRE EL SERVIDOR hecha justo cuando no se ha podido hablar con él.
+    //   Medido el 2026-09-10: salía con el servidor perfecto y el móvil fuera
+    //   de la tailnet. Ver `diagnostico.js`.
+    const coordinador = ref({ vivo: false, hay: false, turnos: {}, consultado: false });
     const pendienteAqui = computed(() => Boolean(coordinador.value.turnos?.[abierta.value]));
 
     /** El aviso, o cadena vacía si no hay nada que decir. Los tres casos son
@@ -61,6 +80,7 @@ createApp({
      *  caída, y confundirlos manda a reiniciar algo que funciona. */
     const avisoCoordinador = computed(() => {
       const c = coordinador.value;
+      if (!c.consultado) return '';   // no se le ha podido preguntar: el 🔴 de red ya lo dice
       if (c.vivo) return '';
       if (!c.hay) return '⚠ No sé si el bot está vivo: este coordinador todavía no escribe latido. ' +
         'Lo que ves puede estar al día o no.';
@@ -74,7 +94,7 @@ createApp({
       try {
         const r = await api('/api/sesiones');
         sesiones.value = r.sesiones;
-        coordinador.value = r.coordinador ?? { vivo: false, hay: false, turnos: {} };
+        coordinador.value = { ...(r.coordinador ?? { vivo: false, hay: false, turnos: {} }), consultado: true };
       } catch (e) {
         // Se DICE que no se pudo, en vez de enseñar una lista vacía — que se
         // leería como «no has hablado con claude nunca».
@@ -172,6 +192,82 @@ createApp({
       }
     }
 
+
+    // ------------------------------------------------ cambiar de servidor
+    // Ver `direccion.js`. Aquí sólo va lo que necesita navegador: el almacén, la
+    // comprobación previa y el salto.
+    const verDireccion = ref(false);           // desplegable: NO sale si no se pide
+    const direccionEscrita = ref('');
+    const direccionGuardada = ref(leerGuardada(window.localStorage));
+    const probando = ref(false);
+    const errorDireccion = ref('');
+    const puedeForzar = ref(false);
+
+    /**
+     * ¿Contesta algo en esa dirección? Con `mode: 'no-cors'`, que es la pieza
+     * que hace que esto no necesite CORS: la respuesta llega OPACA —no se puede
+     * leer ni el status— pero **la petición sólo LANZA si no se llegó**, que es
+     * justo lo único que hay que distinguir aquí.
+     */
+    async function contesta(origen) {
+      try {
+        await fetch(`${origen}/api/salud`, { mode: 'no-cors', cache: 'no-store' });
+        return true;
+      } catch { return false; }
+    }
+
+    /**
+     * Guarda la dirección y salta.
+     *
+     * ⚠ La comprobación AVISA PERO NO BLOQUEA (`forzar`), que es la misma regla
+     * que `/use` con `requiere` en el coordinador: mira desde ESTE móvil y en
+     * ESTE momento, así que un falso negativo —Tailscale levantándose, un DNS
+     * lento— que impidiera guardar la dirección buena sería peor que el aviso.
+     * Lo que sí evita es el fallo caro: guardar una dirección mal tecleada y
+     * dejar el icono del móvil saltando para siempre a un sitio que no existe.
+     */
+    async function usarDireccion(forzar = false) {
+      errorDireccion.value = ''; puedeForzar.value = false;
+      const r = normalizarDireccion(direccionEscrita.value);
+      if (!r.ok) { errorDireccion.value = r.motivo; return; }
+
+      if (r.origen === location.origin) {
+        errorDireccion.value = 'Esa es la dirección desde la que ya estás abriendo la app.';
+        return;
+      }
+
+      if (!forzar) {
+        probando.value = true;
+        const vale = await contesta(r.origen);
+        probando.value = false;
+        if (!vale) {
+          errorDireccion.value = `No he conseguido alcanzar ${r.origen}. ` +
+            'Comprueba que Tailscale está encendido y que la dirección es la que te dio ' +
+            '"/use cweb" → "url".';
+          puedeForzar.value = true;
+          return;
+        }
+      }
+
+      if (!guardarDireccion(window.localStorage, r.origen)) {
+        errorDireccion.value = 'No he podido guardarla en este móvil (¿modo incógnito?). ' +
+          'Puedo llevarte igual, pero habrá que repetirlo la próxima vez.';
+        puedeForzar.value = true;
+        // No se salta a ciegas: que no se pueda guardar cambia lo que va a pasar
+        // después, así que se dice ANTES en vez de descubrirlo al volver.
+        return;
+      }
+      location.replace(r.origen);
+    }
+
+    /** Olvidar la dirección guardada y quedarse en el origen de verdad. */
+    function olvidarServidor() {
+      olvidarDireccion(window.localStorage);
+      direccionGuardada.value = null;
+      errorDireccion.value = '';
+      location.replace(location.origin);
+    }
+
     const volver = () => {
       abierta.value = null; mensajes.value = []; borrador.value = ''; cargarLista();
     };
@@ -205,7 +301,8 @@ createApp({
         try {
           const d = JSON.parse(ev.data);
           coordinador.value = {
-            ...coordinador.value, vivo: d.coordinador.vivo, hay: d.coordinador.hay,
+            ...coordinador.value, consultado: true,
+            vivo: d.coordinador.vivo, hay: d.coordinador.hay,
             turnos: Object.fromEntries((d.coordinador.turnos ?? []).map((s) => [s, true])),
           };
           if (abierta.value) {
@@ -233,6 +330,9 @@ createApp({
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
       coordinador, avisoCoordinador, pendienteAqui,
       borrador, enviando, caja, enviar, crecer, ejecutor, avisoEjecutor,
+      verDireccion, direccionEscrita, direccionGuardada, probando,
+      errorDireccion, puedeForzar, usarDireccion, olvidarServidor,
+      origenActual: location.origin,
       abrir, volver, masAntiguos, cuando, AUTOR,
       render: (t) => md.render(String(t ?? '')),
       esCorte: (m) => m.autor === 'sistema' && m.origen === 'creset',

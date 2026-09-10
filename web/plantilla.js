@@ -24,6 +24,44 @@ export const PLANTILLA = `
     <main>
       <div v-if="error" class="error">{{ error }}</div>
 
+      <!-- Cambiar de servidor. Va PLEGADO y sólo cuando hay un error de red: es
+           la salida para «la máquina se rehízo y cambió de nombre», no algo que
+           haya que ver cada día. Desplegarlo es una decisión, no un tropiezo. -->
+      <div v-if="error" class="servidor">
+        <button class="enlace" @click="verDireccion = !verDireccion">
+          {{ verDireccion ? '▾' : '▸' }} Cambiar la dirección del servidor
+        </button>
+        <div v-if="verDireccion" class="servidor-caja">
+          <p class="pista">
+            Pídela por Telegram con <b>/use cweb</b> y luego <b>url</b>. Se guarda en este
+            móvil y la app saltará sola: no hay que reinstalarla.
+          </p>
+          <input
+            v-model="direccionEscrita"
+            type="url"
+            inputmode="url"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            placeholder="dev.tured.ts.net:8443"
+            @keydown.enter.prevent="usarDireccion(false)">
+          <div class="fila-botones">
+            <button class="enviar" :disabled="probando" @click="usarDireccion(false)">
+              {{ probando ? 'probando…' : 'Guardar e ir' }}
+            </button>
+            <button v-if="puedeForzar" class="secundario" @click="usarDireccion(true)">
+              Ir de todos modos
+            </button>
+          </div>
+          <p v-if="errorDireccion" class="error-linea">{{ errorDireccion }}</p>
+          <p class="pista tenue">Abriendo desde: {{ origenActual }}</p>
+          <p v-if="direccionGuardada && direccionGuardada !== origenActual" class="pista">
+            Guardada: {{ direccionGuardada }}
+            <button class="enlace" @click="olvidarServidor">olvidarla</button>
+          </p>
+        </div>
+      </div>
+
       <!-- Que el bot esté parado se DICE. Enseñar el último log como si fuera de
            ahora es fallar a mitad: parece que claude no te contestó. -->
       <div v-if="avisoCoordinador" class="aviso">{{ avisoCoordinador }}</div>
