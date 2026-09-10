@@ -28,7 +28,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { listarSesiones, leerMensajes, leerLatido, PAGINA } from './datos.mjs';
+import { listarSesiones, leerMensajes, leerLatido, encolarEnvio, PAGINA } from './datos.mjs';
 import { crearVigilante } from './eventos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
@@ -141,6 +141,29 @@ export function crearServidor(raiz) {
     // nombre del fichero y ahí una `/` se convierte en `_`, así que no hay forma
     // de salir de `mensajes/`. Tiene test, porque «no hace falta» envejece mal.
     const m = url.pathname.match(/^\/api\/sesiones\/([^/]+)\/mensajes$/);
+
+    if (m && req.method === 'POST') {
+      let crudo = '';
+      req.on('data', (d) => {
+        crudo += d;
+        // Se corta pronto: sin esto, un POST enorme se lee entero en memoria
+        // antes de poder rechazarlo.
+        if (crudo.length > 200_000) { req.destroy(); }
+      });
+      req.on('end', () => {
+        let texto;
+        try { texto = JSON.parse(crudo).texto; } catch { return json(res, 400, { error: 'JSON inválido' }); }
+        const r = encolarEnvio(raiz, decodeURIComponent(m[1]), texto);
+        if (r.error) return json(res, 400, r);
+        // 202 y no 200: el turno NO ha corrido todavía. Puede tardar minutos
+        // —`c` no tiene timeout— así que dejar la petición HTTP colgada esperando
+        // sería quedarse sin respuesta justo cuando más tarda. Lo que pase se ve
+        // por el SSE, como todo lo demás.
+        json(res, 202, { ...r, aviso: 'encolado: el coordinador lo atiende enseguida' });
+      });
+      return;
+    }
+
     if (m) {
       const limite = Math.min(Number(url.searchParams.get('limite')) || PAGINA, 500);
       return json(res, 200, leerMensajes(raiz, decodeURIComponent(m[1]), {

@@ -23,7 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -311,4 +311,50 @@ test('/api/eventos abre un stream y manda el estado de entrada', async () => {
 
     ctrl.abort();
   } finally { await s.cerrar(); }
+});
+
+// ------------------------------------------------- 8. escribir desde la web
+
+test('un POST deja el mensaje en la cola del coordinador, y responde 202', async () => {
+  const raiz = mkdtempSync(join(tmpdir(), 'cweb-post-'));
+  mkdirSync(join(raiz, 'mensajes'), { recursive: true });
+  const s = await levantar(raiz);
+  try {
+    const r = await fetch(`http://${HOST}:${s.puerto}/api/sesiones/-100123_7/mensajes`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texto: 'hola desde la app' }),
+    });
+    assert.equal(r.status, 202,
+      '202 y no 200: el turno NO ha corrido todavía, y con `c` puede tardar minutos');
+    const { encolado } = await r.json();
+    const dejado = JSON.parse(readFileSync(join(raiz, 'entrada', encolado), 'utf8'));
+    assert.equal(dejado.sesion, '-100123_7');
+    assert.equal(dejado.texto, 'hola desde la app');
+    assert.match(dejado.cuando, /^\d{4}-/, 'con su hora, que es lo que permite caducarlo');
+  } finally { await s.cerrar(); }
+});
+
+test('un POST vacío, enorme o a un tema inventado se RECHAZA', async () => {
+  const raiz = mkdtempSync(join(tmpdir(), 'cweb-post2-'));
+  mkdirSync(join(raiz, 'mensajes'), { recursive: true });
+  const s = await levantar(raiz);
+  const post = (sesion, texto) => fetch(
+    `http://${HOST}:${s.puerto}/api/sesiones/${encodeURIComponent(sesion)}/mensajes`,
+    { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texto }) });
+  try {
+    assert.equal((await post('-100123_7', '   ')).status, 400, 'vacío');
+    assert.equal((await post('-100123_7', 'x'.repeat(40_000))).status, 400, 'enorme');
+    assert.equal((await post('../../etc', 'hola')).status, 400, 'sesión inventada');
+    assert.equal(existsSync(join(raiz, 'entrada')) ? readdirSync(join(raiz, 'entrada')).length : 0, 0,
+      'nada de eso puede llegar a la cola del coordinador');
+  } finally { await s.cerrar(); }
+});
+
+test('el fichero se escribe con rename: el coordinador nunca ve uno a medias', async () => {
+  // El coordinador vigila ese directorio. Un fichero a medio escribir se leería
+  // como JSON roto y se apartaría, perdiendo el mensaje.
+  const fuente = readFileSync(new URL('../server/datos.mjs', import.meta.url), 'utf8');
+  assert.match(fuente, /escribiendo[\s\S]{0,200}renameSync/,
+    'se escribe en un temporal y se renombra');
 });

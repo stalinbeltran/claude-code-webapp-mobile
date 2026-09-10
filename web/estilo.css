@@ -157,3 +157,26 @@ main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 .esperando { text-align: center; padding: .8rem; animation: latir 1.6s ease-in-out infinite; }
 @keyframes latir { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .esperando { animation: none; } }
+
+/* La barra de escribir. Pegada abajo y por encima del teclado: en un móvil, el
+   sitio donde se escribe no puede depender de dónde esté el scroll. */
+footer {
+  position: sticky; bottom: 0;
+  display: flex; gap: .5rem; align-items: flex-end;
+  padding: .6rem .8rem; padding-bottom: max(.6rem, env(safe-area-inset-bottom));
+  background: var(--panel); border-top: 1px solid var(--borde);
+}
+footer textarea {
+  flex: 1; resize: none; min-height: 2.4rem; max-height: 160px;
+  padding: .55rem .7rem; border-radius: 12px;
+  border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+  font: inherit; line-height: 1.4;
+}
+footer textarea:disabled { opacity: .6; }
+.enviar {
+  padding: .55rem 1rem; border-radius: 999px; border: 0;
+  background: var(--acento); color: #08121f; font-weight: 600; cursor: pointer;
+}
+.enviar:disabled { opacity: .45; cursor: default; }
+/* El main deja sitio para que el último mensaje no quede bajo la barra. */
+main { padding-bottom: .5rem; }

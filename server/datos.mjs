@@ -14,7 +14,8 @@
 // notará en `/api/sesiones`, que lee todos los ficheros— la salida es un índice
 // por sesión, no leer al revés.
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 /** Cuántos mensajes devuelve una página. */
@@ -162,4 +163,39 @@ export function leerLatido(raiz, ahora = Date.now()) {
     // Un latido ilegible es una duda, no un «está bien».
     return { vivo: false, hay: true, visto: null, turnos: {}, roto: true };
   }
+}
+
+/** Tope de un mensaje escrito desde la app. Suficiente para pegar una instrucción
+ *  larga, y lejos de poder llenar el disco a base de POSTs. */
+export const TOPE_ENVIO = 32_000;
+
+/**
+ * Deja un mensaje para que el coordinador lo atienda.
+ *
+ * ⚠ Esta web **no ejecuta nada**: escribe un fichero y ya. Quien lo recoge y
+ * corre el turno es el coordinador (`src/entrada.ts`), que es quien tiene el
+ * cerrojo, el log y la sesión. Es la decisión P6, y es lo que hace que haya **un
+ * solo camino** por el que se ejecuta un turno — el mismo que el de Telegram.
+ *
+ * ⚠ Se escribe en un temporal y se renombra: el coordinador vigila ese
+ * directorio, y un fichero a medio escribir se leería como JSON roto.
+ */
+export function encolarEnvio(raiz, sesion, texto) {
+  const t = String(texto ?? '').trim();
+  if (!t) return { error: 'El mensaje está vacío.' };
+  if (t.length > TOPE_ENVIO) {
+    return { error: `El mensaje pasa de ${TOPE_ENVIO} caracteres (${t.length}).` };
+  }
+  if (!/^-?\d+_(\d+|main)$/.test(String(sesion))) {
+    return { error: `"${sesion}" no parece un tema.` };
+  }
+
+  const dir = join(raiz, 'entrada');
+  mkdirSync(dir, { recursive: true });
+  const nombre = `${Date.now()}-${randomBytes(4).toString('hex')}.json`;
+  const destino = join(dir, nombre);
+  const tmp = `${destino}.escribiendo`;
+  writeFileSync(tmp, JSON.stringify({ sesion, texto: t, cuando: new Date().toISOString() }));
+  renameSync(tmp, destino);
+  return { encolado: nombre };
 }

@@ -96,7 +96,50 @@ createApp({
       } catch (e) { error.value = e.message; }
     }
 
-    const volver = () => { abierta.value = null; mensajes.value = []; cargarLista(); };
+    const borrador = ref('');
+    const enviando = ref(false);
+    const caja = ref(null);
+
+    /** La caja crece con el texto, hasta un tope. Una caja de una línea para una
+     *  instrucción de diez es exactamente lo que hace que no la uses. */
+    function crecer() {
+      const el = caja.value;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    }
+
+    /**
+     * Manda lo escrito. ⚠ Lo que devuelve el servidor es un 202: el turno NO ha
+     * corrido todavía. Aparecerá por el SSE como cualquier otro mensaje —incluido
+     * el tuyo—, así que aquí no se pinta nada a mano: una copia optimista se
+     * quedaría descolgada si el coordinador lo rechaza.
+     */
+    async function enviar() {
+      const texto = borrador.value.trim();
+      if (!texto || enviando.value) return;
+      enviando.value = true;
+      error.value = '';
+      try {
+        const r = await fetch(`/api/sesiones/${encodeURIComponent(abierta.value)}/mensajes`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ texto }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || `${r.status}`);
+        borrador.value = '';
+        requestAnimationFrame(crecer);
+      } catch (e) {
+        error.value = `No pude enviarlo: ${e.message}. Sigue escrito aquí abajo.`;
+      } finally {
+        enviando.value = false;
+      }
+    }
+
+    const volver = () => {
+      abierta.value = null; mensajes.value = []; borrador.value = ''; cargarLista();
+    };
 
     /** Traer sólo lo que falta de la conversación abierta, sin recargarla entera:
      *  reemplazarla haría saltar el scroll cada vez que llega un mensaje. */
@@ -148,6 +191,7 @@ createApp({
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
       coordinador, avisoCoordinador, pendienteAqui,
+      borrador, enviando, caja, enviar, crecer,
       abrir, volver, masAntiguos, cuando, AUTOR,
       render: (t) => md.render(String(t ?? '')),
       esCorte: (m) => m.autor === 'sistema' && m.origen === 'creset',

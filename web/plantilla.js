@@ -63,4 +63,20 @@ export const PLANTILLA = `
         <p v-if="pendienteAqui" class="pendiente esperando">⏳ claude está respondiendo…</p>
       </template>
     </main>
+
+    <!-- Escribir. Va FUERA del main y pegado abajo: en un móvil, el sitio donde
+         se escribe no puede depender de dónde esté el scroll. -->
+    <footer v-if="abierta">
+      <textarea
+        v-model="borrador"
+        :disabled="enviando"
+        rows="1"
+        placeholder="Escribe a claude…"
+        @keydown.enter.exact.prevent="enviar"
+        @input="crecer"
+        ref="caja"></textarea>
+      <button class="enviar" :disabled="!borrador.trim() || enviando" @click="enviar">
+        {{ enviando ? '…' : 'Enviar' }}
+      </button>
+    </footer>
   `;
