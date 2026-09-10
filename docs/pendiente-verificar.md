@@ -1,5 +1,81 @@
 # ⏳ PENDIENTE de verificar: lo que se construyó el 2026-09-10 y NO se ha visto funcionar entero
 
+## ✅ ACTUALIZADO el 2026-09-10 (noche): el ciclo SÍ ocurrió, y salió medio bien
+
+**Este server es el dev nuevo.** Nació a las 20:00 UTC, o sea que el
+destroy + launch que abajo se pide como verificación **ya pasó**. Esto es lo que
+se midió, y hay que leerlo antes que la tabla de abajo:
+
+| | |
+|---|---|
+| ✅ **`tailscale-unir.mjs` une una máquina VIRGEN con `--auth-key=file:`** | 20:08:34, `tailscale up --auth-key=file:/tmp/tsjoin-…/authkey`, nodo dentro. Era el ❌ más temido de esta lista («si falla, el dev nace sin tailscale y la web no se ve por ningún lado») |
+| ✅ **la authkey NO aparece en el journal** | el `COMMAND=` registrado es la ruta del fichero, no la clave |
+| ✅ **el nombre `dev` se recuperó** | el nodo entró como `dev-2` (el viejo aún ocupaba el nombre) y a las 20:29 un `logout` + volver a unir lo dejó como **`dev`** |
+| ❌ **y aun así la app no se veía**, por un fallo NUEVO que esta lista no preveía | ver abajo |
+
+### ⚠⚠ El fallo nuevo: el `serve` se quedó con el nombre ANTERIOR
+
+Medido en el journal de esta máquina:
+
+```
+20:08:35  serve --bg  → config escrita bajo `dev-2`  (el nodo era dev-2)
+20:29:25  sudo tailscale logout
+20:29:40  tailscale up --hostname=dev      → el nodo pasa a llamarse `dev`
+20:29:41  serve --bg  → POST aplicado …  y la config SIGUIÓ diciendo `dev-2`
+```
+
+Resultado: **ninguna de las dos direcciones servía.**
+
+```
+Host=dev    → "no webserver configured for name/port"
+Host=dev-2  → 'invalid domain "dev-2…"; must be one of ["dev.tail376e31.ts.net"]'
+```
+
+La app estaba perfecta todo el rato (`127.0.0.1:8020` → 200). Desde el móvil se
+ve como «Failed to fetch», o sea como una app rota.
+
+**Lo que hay que entender, porque es lo que engaña:**
+
+1. **El paso de reponer el serve YA EXISTÍA y se ejecutó.** No faltaba nada. Se
+   lanzó 1 s después del `up` —antes de que el registro con el nombre nuevo
+   asentara— y escribió la config con el nombre viejo. **Reintentar a ciegas no
+   arregla esto: el reintento es lo que lo escribe mal.**
+2. **`hayDeriva()` no podía saltar**, y es lo más contraintuitivo: el nodo tenía
+   el nombre **correcto**. La deriva que se vigilaba era «pedido ↔ nodo»; la que
+   mordió es la otra mitad del par, **«nodo ↔ serve»**. Dos derivas distintas,
+   dos causas distintas, y hasta ese día sólo se miraba una.
+3. **`cweb url` daba la URL muerta con total confianza**, porque leía «el primer
+   `https://` que imprime `serve status`» — y ahí el orden no significa nada. El
+   comando que existe para no suponer acabó mintiendo.
+4. ⚠ **Y la comprobación final no podía pasar NUNCA.** `tailscale-serve.mjs`
+   probaba con `curl https://<fqdn>:8443/api/salud`, pero el nodo se une con
+   `--accept-dns=false` (deliberado), así que la máquina **no resuelve su propio
+   MagicDNS**. Medido con el serve ya arreglado y sirviendo: sin `--resolve` da
+   `000`, con `--resolve` da `200`. Un ⚠ que sale siempre se deja de leer.
+
+**Arreglado en código el mismo día**, con 8 tests en `tests/nodo.test.mjs`:
+`serveHuerfano()` compara el host publicado con el del nodo, `tailscale-unir.mjs`
+comprueba bajo qué nombre quedó el serve (y lo rehace con `reset` + `--bg`, en
+ese orden, porque `--bg` añade y no reemplaza), `cweb url` elige el host propio
+en vez del primero, y la comprobación resuelve por la IP del nodo.
+
+**El freno se pone en el DATO, no en el timing.** La carrera es la explicación
+más plausible de aquel segundo y encaja con los tiempos, pero **no está
+aislada**: del journal se prueba que el POST se aplicó y que el resultado fue
+`dev-2`, no qué nombre reportaba tailscaled en ese instante. Comparar el host
+detecta el estado malo se haya llegado a él como se haya llegado.
+
+### Qué queda de esta lista
+
+- El **paso 1 del dueño** (borrar el nodo `dev` viejo) ya no hace falta: la
+  tailnet tiene hoy **2 nodos**, `dev` y `redmi-note-12`. Se limpió.
+- El **paso 2 (rotar la `TS_AUTHKEY`)** sigue pendiente hasta que el dueño lo
+  confirme: desde aquí no se puede comprobar, y la clave filtrada es `Reusable`.
+- El **`pre_destroy` disparado por un `destroy` de verdad** sigue **sin verse**:
+  esta máquina es la que nació, no la que murió.
+
+---
+
 **Léelo si acabas de nacer en un server nuevo.** Todo lo de aquí está implementado,
 commiteado y con tests; lo que falta es el **ciclo real**, que sólo se puede ver
 destruyendo y relanzando un dev — y eso no había pasado todavía cuando se escribió

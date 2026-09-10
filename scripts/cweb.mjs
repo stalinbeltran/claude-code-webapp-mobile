@@ -13,7 +13,7 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { avisoDeDeriva } from './nodo.mjs';
+import { avisoDeDeriva, avisoDeServeHuerfano, serveHuerfano } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
@@ -124,15 +124,37 @@ function nombreDelNodo() {
  */
 function url() {
   const s = sh('tailscale serve status 2>/dev/null');
-  const publicada = (s.match(/https:\/\/\S+/) || [])[0];
+  const dnsNodo = nombreDelNodo();
+
+  // ⚠⚠ NO se coge «el primer https:// que salga», que es lo que hacía y lo que
+  // dio la URL muerta el 2026-09-10. `serve status` puede publicar VARIOS hosts
+  // —el del nodo y los que quedaron de un nombre anterior— y ahí el orden no
+  // significa nada. Se elige el que es de ESTE nodo, y para eso hay que
+  // comparar, no leer.
+  let serve = null;
+  try { serve = JSON.parse(sh('tailscale serve status --json 2>/dev/null')); } catch { /* abajo se degrada */ }
+  const { propios, huerfanos, sabe } = serveHuerfano(dnsNodo, serve);
+
+  const publicada = sabe && propios.length
+    ? `https://${propios[0]}`                                  // el del nodo, comprobado
+    : (s.match(/https:\/\/\S+/) || [])[0];                     // sin poder comparar, lo de siempre
+
+  // ⚠ Si TODO lo publicado es huérfano, no hay URL buena que dar. Devolver la
+  // muerta «porque es lo que dice el status» es exactamente el fallo que costó
+  // la app entera: el comando que existe para no suponer acabó mintiendo con
+  // total confianza. Aquí se dice qué pasa y el comando que lo arregla.
+  const huerfano = avisoDeServeHuerfano(dnsNodo, serve, PUERTO_TS, PUERTO);
+  if (sabe && huerfanos.length && !propios.length) return huerfano;
+
   if (publicada) {
     // ⚠⚠ Y se dice si el nodo NO se llama como debería. Ésta es la pregunta que
     // se hace justo cuando la app «no funciona» desde el móvil, así que es donde
     // tiene que estar la respuesta: una URL correcta a secas no explica por qué
     // la que tienes guardada dejó de servir (medido el 2026-09-10).
-    const deriva = avisoDeDeriva(NOMBRE, nombreDelNodo(), PUERTO_TS);
+    const deriva = avisoDeDeriva(NOMBRE, dnsNodo, PUERTO_TS);
     return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/` +
-      (deriva ? `\n\n${deriva}` : '');
+      (deriva ? `\n\n${deriva}` : '') +
+      (huerfano ? `\n\n${huerfano}` : '');
   }
   const nodo = sh('tailscale status --json 2>/dev/null');
   const dentro = nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo);

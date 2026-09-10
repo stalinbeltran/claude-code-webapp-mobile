@@ -15,6 +15,7 @@
 // Uso:  node scripts/tailscale-serve.mjs [--esperar <minutos>]
 
 import { execFileSync, execSync } from 'node:child_process';
+import { serveHuerfano, ordenDeProbar } from './nodo.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -37,26 +38,29 @@ function avisar(texto) {
   } catch { /* el log de esta unidad sigue siendo la fuente de verdad */ }
 }
 
-/** El nombre DNS del nodo, o null si aún no ha entrado en la tailnet. */
+/** El nombre DNS del nodo y su IP, o null si aún no ha entrado en la tailnet.
+ *  ⚠ La IP hace falta para poder PROBARSE a sí mismo: con `--accept-dns=false`
+ *  esta máquina no resuelve su propio MagicDNS (ver `ordenDeProbar`). */
 function nombreDelNodo() {
   const r = sh('tailscale status --json');
   if (!r.ok) return null;
   try {
     const s = JSON.parse(r.out);
     if (s.BackendState !== 'Running') return null;
-    return s.Self?.DNSName?.replace(/\.$/, '') || null;
+    const dns = s.Self?.DNSName?.replace(/\.$/, '') || null;
+    return dns ? { dns, ip: (s.Self?.TailscaleIPs || [])[0] || null } : null;
   } catch { return null; }
 }
 
 console.log(`[serve] esperando a que el nodo entre en la tailnet (hasta ${MINUTOS} min)…`);
-let nombre = null;
+let nodo = null;
 for (let s = 0; s < MINUTOS * 60; s += 5) {
-  nombre = nombreDelNodo();
-  if (nombre) break;
+  nodo = nombreDelNodo();
+  if (nodo) break;
   execFileSync('sleep', ['5']);
 }
 
-if (!nombre) {
+if (!nodo) {
   const m = `⏳ Tailscale: el server sigue SIN autorizar tras ${MINUTOS} min.\n` +
     'El enlace de login caduca; para sacar uno nuevo: `sudo tailscale up --hostname=dev`.';
   console.error(m);
@@ -64,7 +68,29 @@ if (!nombre) {
   process.exit(0);   // ⚠ 0 siempre: esto corre como unidad y un fallo al final sería un BUCLE
 }
 
+const nombre = nodo.dns;
 console.log(`[serve] nodo conectado: ${nombre}`);
+
+// ⚠⚠ PRIMERO SE LIMPIA LO QUE PUBLIQUE OTRO NOMBRE, y esto es el arreglo del
+// 2026-09-10. `serve --bg` AÑADE el host de ahora pero **no borra el de antes**:
+// si el nodo cambió de nombre desde la última vez (un `logout` + volver a unir
+// para recuperar el nombre bueno), quedan los dos publicados, y el que lea el
+// status después puede coger el muerto. Ese día el serve se quedó entero bajo
+// `dev-2` mientras el nodo ya se llamaba `dev`, y la app dejó de verse por las
+// DOS direcciones. Ver `serveHuerfano()` en `nodo.mjs`.
+//
+// ⚠ El `reset` sólo se hace si hay algo huérfano: es destructivo (se lleva
+// cualquier serve puesto a mano) y no hay motivo para pagarlo cuando no sobra
+// nada. Si no se puede comparar, NO se resetea: no saber no es motivo para
+// borrar.
+let serveActual = null;
+try { serveActual = JSON.parse(sh('tailscale serve status --json').out || 'null'); } catch { /* se degrada */ }
+const { huerfanos } = serveHuerfano(nombre, serveActual);
+if (huerfanos.length) {
+  console.log(`[serve] limpiando ${huerfanos.length} host(s) de un nombre anterior: ${huerfanos.join(', ')}`);
+  const limpieza = sh('sudo -n tailscale serve reset');
+  if (!limpieza.ok) console.error(`[serve] no pude limpiarlos:\n${limpieza.out.slice(-300)}`);
+}
 
 // ⚠ `--bg` para que la configuración quede puesta y sobreviva a este proceso:
 // `tailscale serve` sin él se queda en primer plano y al morir deja de servir.
@@ -86,7 +112,7 @@ if (!r.ok) {
 }
 
 // No se anuncia hasta comprobarlo: un puerto configurado no es una web que responda.
-const prueba = sh(`curl -s --max-time 8 -o /dev/null -w '%{http_code}' https://${nombre}:${PUERTO_TS}/api/salud`);
+const prueba = sh(ordenDeProbar(nombre, nodo.ip, PUERTO_TS));
 const url = `https://${nombre}:${PUERTO_TS}/`;
 const m = prueba.out === '200'
   ? `✅ La web de lectura ya se ve desde tu móvil (con Tailscale activo):\n\n${url}\n\n` +

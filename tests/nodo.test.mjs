@@ -16,7 +16,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir, nodosAReclamar,
-         ordenDeDesunir } from '../scripts/nodo.mjs';
+         ordenDeDesunir, serveHuerfano, avisoDeServeHuerfano,
+         ordenDeProbar } from '../scripts/nodo.mjs';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -251,4 +252,87 @@ test('⚠ y el seco va ANTES de cualquier comprobación que pueda negarse', () =
   assert.ok(iSeco < iComprueba,
     'un ensayo no desune nada, así que no puede hacer daño — y bloquearlo ' +
     'impediría mirar qué pasaría justo cuando más falta hace (lección de banco-k)');
+});
+
+
+// ---------------------------------------------------------------------------
+// La OTRA deriva: nodo ↔ serve. Medido el 2026-09-10 y costó la app entera.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ Lo que hace a este fallo distinto del de arriba: **el nodo tenía el nombre
+// CORRECTO**. Entró como `dev-2`, se puso el serve, y luego un `logout` + volver
+// a unir le devolvió el nombre bueno `dev` — o sea que la reparación fue la que
+// rompió. `hayDeriva()` no podía saltar (no había deriva de nombre) y aun así
+// ninguna de las dos direcciones servía.
+
+test('⚠ el caso real: el nodo es `dev` y el serve sigue publicando `dev-2`', () => {
+  const r = serveHuerfano('dev.ejemplo.ts.net.', { Web: { 'dev-2.ejemplo.ts.net:8443': {} } });
+  assert.equal(r.sabe, true);
+  assert.deepEqual(r.huerfanos, ['dev-2.ejemplo.ts.net:8443'],
+    'si esto no se detecta, `cweb url` devuelve la URL muerta con total confianza');
+  assert.deepEqual(r.propios, [], 'y no hay ninguna dirección buena que dar');
+});
+
+test('el puerto y el punto final del FQDN no cuentan al comparar', () => {
+  const r = serveHuerfano('dev.ejemplo.ts.net.', { Web: { 'dev.ejemplo.ts.net:8443': {} } });
+  assert.deepEqual(r.huerfanos, [], 'es el mismo host: sólo cambia el puerto');
+  assert.deepEqual(r.propios, ['dev.ejemplo.ts.net:8443']);
+});
+
+test('con los dos publicados se distingue cuál sirve', () => {
+  const r = serveHuerfano('dev.ejemplo.ts.net.',
+    { Web: { 'dev-2.ejemplo.ts.net:8443': {}, 'dev.ejemplo.ts.net:8443': {} } });
+  assert.deepEqual(r.propios, ['dev.ejemplo.ts.net:8443']);
+  assert.deepEqual(r.huerfanos, ['dev-2.ejemplo.ts.net:8443']);
+});
+
+test('⚠ sin poder comparar NO se afirma que haya nada roto', () => {
+  // Misma regla que `hayDeriva` y que el `NO SÉ` del freno: inventarse un
+  // problema manda a resetear un serve que estaba bien.
+  assert.equal(serveHuerfano(null, { Web: { 'dev.ejemplo.ts.net:8443': {} } }).sabe, false);
+  assert.equal(serveHuerfano('dev.ejemplo.ts.net', null).sabe, false);
+  assert.equal(serveHuerfano('dev.ejemplo.ts.net', {}).sabe, false);
+  assert.equal(avisoDeServeHuerfano(null, { Web: { 'x.ts.net:8443': {} } }), '');
+});
+
+test('sin huérfanos no se dice nada: un aviso que sale siempre se deja de leer', () => {
+  assert.equal(avisoDeServeHuerfano('dev.ejemplo.ts.net.', { Web: { 'dev.ejemplo.ts.net:8443': {} } }), '');
+});
+
+test('el aviso trae el comando que lo arregla, y el `reset` va ANTES', () => {
+  const a = avisoDeServeHuerfano('dev.ejemplo.ts.net.',
+    { Web: { 'dev-2.ejemplo.ts.net:8443': {} } }, '8443', '8020');
+  assert.match(a, /dev-2\.ejemplo\.ts\.net:8443/, 'dice cuál sobra');
+  assert.match(a, /tailscale serve reset/, 'y cómo quitarlo');
+  assert.match(a, /serve --bg --https=8443 http:\/\/127\.0\.0\.1:8020/, 'y cómo reponerlo');
+  assert.ok(a.indexOf('serve reset') < a.indexOf('--bg'),
+    '⚠ el orden importa: `--bg` AÑADE el host nuevo y no borra el viejo, así que ' +
+    'sin el reset delante quedan los dos publicados');
+});
+
+// ---------------------------------------------------------------------------
+// Probarse a sí mismo por la tailnet, con `--accept-dns=false`.
+// ---------------------------------------------------------------------------
+
+test('⚠ la comprobación resuelve a mano: esta máquina NO resuelve su MagicDNS', () => {
+  // Medido el 2026-09-10 con el serve ya arreglado y contestando:
+  //   sin --resolve -> "000"  (curl: (6) Could not resolve host)
+  //   con --resolve -> "200"
+  // O sea que el paso que confirma que la web se ve decía que NO se veía,
+  // siempre. Peor que no comprobar.
+  const o = ordenDeProbar('dev.ejemplo.ts.net.', '100.64.0.1', '8443');
+  assert.match(o, /--resolve dev\.ejemplo\.ts\.net:8443:100\.64\.0\.1/);
+  assert.match(o, /https:\/\/dev\.ejemplo\.ts\.net:8443\/api\/salud/);
+});
+
+test('⚠ se prueba por el FQDN y con el certificado de verdad', () => {
+  const o = ordenDeProbar('dev.ejemplo.ts.net', '100.64.0.1');
+  assert.ok(!/127\.0\.0\.1/.test(o),
+    'por loopback se probaría la app, que ya se sabe viva; lo que falla es el tramo de tailscale');
+  assert.ok(!/\s-k\b/.test(o) && !/--insecure/.test(o),
+    'el móvil tampoco aceptará un cert malo: si no valida, es un fallo');
+});
+
+test('sin nombre de nodo no hay nada que probar', () => {
+  assert.equal(ordenDeProbar(null, '100.64.0.1'), null);
 });

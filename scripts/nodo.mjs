@@ -229,3 +229,146 @@ export function nodosAReclamar(devices, nombre, opciones = {}) {
 export function ordenDeDesunir() {
   return 'sudo -n tailscale logout';
 }
+
+
+// ---------------------------------------------------------------------------
+// La OTRA deriva: el `serve` se queda con el nombre que el nodo tenía ANTES.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ MEDIDO EL 2026-09-10 en esta máquina, y rompió la app entera.
+// `tailscale serve` guarda el **hostname dentro de su configuración**, no una
+// referencia al nodo. Así que cambiar el nombre del nodo deja el `serve`
+// publicando bajo un nombre que ya no es suyo, y tailscaled rechaza las dos
+// puertas a la vez:
+//
+//     Host=dev    -> "no webserver configured for name/port"
+//     Host=dev-2  -> 'invalid domain "dev-2…"; must be one of ["dev…"]'
+//
+// El timeline de aquel día, del journal:
+//   20:08:35  el nodo entra como `dev-2` (el nombre `dev` seguía ocupado)
+//             -> serve puesto bajo `dev-2`, cert ACME de `dev-2`
+//   20:29:25  `sudo tailscale logout`
+//   20:29:40  `tailscale up --hostname=dev`; el nombre ya estaba libre -> `dev`
+//   20:29:41  `tailscale serve --bg` **SÍ se relanzó**, y aplicó su POST…
+//             …y la config siguió diciendo `dev-2`.
+//
+// ⚠⚠ Y AQUÍ ESTÁ LO QUE HAY QUE ENTENDER: **el paso de reponer el serve YA
+// EXISTÍA y se ejecutó**. No faltaba. Un segundo después del `up`, o sea antes
+// de que el registro con el nombre nuevo asentara, `serve` compuso su config
+// con el nombre que el nodo tenía en ese instante — el viejo. Reintentar a
+// ciegas no arregla esto: el reintento ES lo que lo escribió mal.
+//
+// ⚠ La carrera es la explicación más plausible y encaja con los segundos, pero
+// NO está aislada: del journal se puede probar que el POST de las 20:29:41 se
+// aplicó y que el resultado fue `dev-2`, no qué nombre reportaba tailscaled en
+// ese instante. Por eso el freno NO se pone en el timing —que habría que
+// acertar— sino en el **dato**: se compara el host publicado con el del nodo.
+// Eso detecta el estado malo se haya llegado a él como se haya llegado.
+//
+// ⚠⚠ Y LO QUE HACE ESTO TAN DIFÍCIL DE VER: **la reparación es la que rompe**.
+// El nodo acabó con el nombre BUENO, que es justo lo que `hayDeriva()` vigila,
+// así que el freno que existe para esto no podía saltar — no había deriva de
+// nombre. La que quedaba sin vigilar es la otra mitad del par: no
+// «pedido ↔ nodo», sino **«nodo ↔ serve»**. Son dos derivas distintas con dos
+// causas distintas, y hasta hoy sólo se miraba una.
+//
+// Es la lección de siempre del proyecto por una puerta nueva: el `up` salió con
+// 0, el nodo tenía el nombre correcto, el `serve` estaba puesto y `cweb url`
+// imprimía una URL con total confianza — **la URL muerta**.
+
+/** `dev-2.ejemplo.ts.net:8443` → `dev-2.ejemplo.ts.net`. Sin puerto, sin punto final. */
+const soloHost = (clave) => String(clave ?? '')
+  .replace(/:\d+$/, '')      // el puerto
+  .replace(/\.$/, '')        // el punto final del FQDN
+  .toLowerCase();
+
+/**
+ * Los hosts que `tailscale serve` publica y que **no son este nodo**.
+ *
+ * @param {string|null} dnsNodo  el `Self.DNSName` de `tailscale status --json`
+ * @param {object|null} serve    lo que devuelve `tailscale serve status --json`
+ * @returns {{huerfanos: string[], propios: string[], sabe: boolean}}
+ *
+ * ⚠ `sabe: false` cuando no se puede comparar (nodo fuera de la tailnet, o
+ * `serve status` ilegible). Entonces **no se afirma que haya nada roto**: es la
+ * misma regla que `hayDeriva()` y que el `NO SÉ` del freno del coordinador —
+ * inventarse un problema manda a arreglar lo que no está roto.
+ */
+export function serveHuerfano(dnsNodo, serve) {
+  const mio = String(dnsNodo ?? '').replace(/\.$/, '').toLowerCase();
+  const web = serve?.Web;
+  if (!mio || !web || typeof web !== 'object') return { huerfanos: [], propios: [], sabe: false };
+
+  const huerfanos = [], propios = [];
+  for (const clave of Object.keys(web)) {
+    (soloHost(clave) === mio ? propios : huerfanos).push(String(clave));
+  }
+  return { huerfanos, propios, sabe: true };
+}
+
+/**
+ * El aviso, o cadena vacía si no hay nada que decir.
+ *
+ * Dice lo mismo que su hermano `avisoDeDeriva`: qué pasó, y **el comando que lo
+ * arregla** — que aquí es uno solo y cabe en el mensaje. El `reset` va primero
+ * a propósito: `serve --bg` añade el host nuevo pero **no borra el viejo**, así
+ * que sin él quedan los dos publicados y el siguiente que lea el status puede
+ * volver a coger el muerto.
+ */
+export function avisoDeServeHuerfano(dnsNodo, serve, puertoTs = '8443', puertoWeb = '8020') {
+  const { huerfanos, propios, sabe } = serveHuerfano(dnsNodo, serve);
+  if (!sabe || huerfanos.length === 0) return '';
+  const nodo = String(dnsNodo).replace(/\.$/, '');
+  const arreglo =
+    `  sudo -n tailscale serve reset\n` +
+    `  sudo -n tailscale serve --bg --https=${puertoTs} http://127.0.0.1:${puertoWeb}`;
+
+  return `⚠⚠ EL \`serve\` PUBLICA UN NOMBRE QUE ESTE NODO YA NO TIENE.\n` +
+    `Este nodo es "${nodo}", pero tailscale serve sirve bajo:\n` +
+    huerfanos.map((h) => `  · ${h}   ← muerto`).join('\n') + '\n' +
+    (propios.length ? propios.map((h) => `  · ${h}   ← este sí\n`).join('') : '') +
+    `\n` +
+    `Qué se rompe: NINGUNA de las dos direcciones sirve. Por el nombre viejo,\n` +
+    `tailscaled contesta 'invalid domain … must be one of ["${nodo}"]'; por el\n` +
+    `bueno, "no webserver configured for name/port". Desde el móvil se ve como\n` +
+    `"Failed to fetch", o sea como una app rota — y la app está perfecta.\n` +
+    `\n` +
+    `Por qué pasa: el nombre del nodo cambió DESPUÉS de poner el serve (un\n` +
+    `\`logout\` + volver a unir al recuperar el nombre bueno, p. ej.). El serve\n` +
+    `guarda el hostname dentro de su config y no sigue al nodo.\n` +
+    `\n` +
+    `Se arregla con esto, y es idempotente:\n${arreglo}`;
+}
+
+
+/**
+ * La orden con la que este nodo se comprueba a SÍ MISMO por la tailnet.
+ *
+ * ⚠⚠ MEDIDO EL 2026-09-10: la versión anterior era un `curl https://<fqdn>:<p>/…`
+ * a secas, y **no podía dar 200 jamás** en esta máquina. El nodo se une con
+ * `--accept-dns=false` (ver `ordenDeUnir`, y es deliberado: no se le toca el DNS
+ * al droplet), así que la propia máquina NO resuelve su nombre de MagicDNS:
+ *
+ *     sin --resolve -> "000"   (curl: (6) Could not resolve host)
+ *     con --resolve -> "200"
+ *
+ * O sea que el paso que existe para confirmar que la web se ve **decía que no se
+ * veía, siempre**, con el serve perfecto. Es el patrón B del proyecto: un aviso
+ * que sale siempre se deja de leer, y entonces el día que sea de verdad tampoco
+ * se lee. Peor que no comprobar.
+ *
+ * ⚠ Y NO se comprueba por `127.0.0.1`, que es la salida fácil: eso probaría la
+ * app, que ya se sabe que está viva. Lo que hay que probar es justo el tramo que
+ * falla —TLS y enrutado por nombre dentro de tailscaled—, y ése sólo se recorre
+ * pidiendo por el FQDN. Se le da la IP para saltarse el DNS, no el nombre.
+ *
+ * ⚠ Sin `-k`: el certificado es de Let's Encrypt por ACME y tiene que validar,
+ * porque el móvil tampoco va a aceptar uno malo. Si no valida, esto es un fallo.
+ */
+export function ordenDeProbar(dnsNodo, ip, puertoTs = '8443', ruta = '/api/salud') {
+  const fqdn = String(dnsNodo ?? '').replace(/\.$/, '');
+  if (!fqdn) return null;
+  const resolucion = ip ? `--resolve ${fqdn}:${puertoTs}:${ip} ` : '';
+  return `curl -s --max-time 10 -o /dev/null -w '%{http_code}' ` +
+    `${resolucion}https://${fqdn}:${puertoTs}${ruta}`;
+}

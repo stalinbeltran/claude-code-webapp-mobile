@@ -30,7 +30,8 @@ import { existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { avisoDeDeriva, nombreCorto, ordenDeUnir } from './nodo.mjs';
+import { avisoDeDeriva, avisoDeServeHuerfano, nombreCorto, ordenDeUnir,
+         serveHuerfano } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
@@ -129,10 +130,51 @@ if (!e.dentro) {
   e = estado();
 }
 
-const r = sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1:${PUERTO_WEB}`);
+// ⚠ `--bg` para que la configuración sobreviva a este proceso: sin él, `serve`
+// se queda en primer plano y al morir deja de servir.
+const ponerServe = () =>
+  sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1:${PUERTO_WEB}`);
+const publicado = () => {
+  try { return JSON.parse(sh('tailscale serve status --json').out || 'null'); } catch { return null; }
+};
+
+let r = ponerServe();
 if (!r.ok) {
   console.error(`[tailscale] el nodo está dentro, pero no pude poner el serve:\n${r.out.slice(-400)}`);
   process.exit(0);
+}
+
+// ⚠⚠ Y AHORA SE COMPRUEBA BAJO QUÉ NOMBRE QUEDÓ, que es el arreglo del
+// 2026-09-10. Ese día esta línea ya existía, se ejecutó **1 s después del
+// `up`**, aplicó su POST… y escribió la config con el nombre que el nodo tenía
+// ANTES de que el registro asentara. Resultado: el nodo era `dev` y el serve
+// publicaba `dev-2`, o sea que la app no se veía por NINGUNA de las dos
+// direcciones. Reintentar a ciegas no lo arregla: el reintento es lo que lo
+// escribió mal. Se comprueba el dato. Ver `serveHuerfano()` en `nodo.mjs`.
+//
+// ⚠ Y se RELEE el nombre del nodo: el de `e` se leyó justo después del `up`,
+// que es exactamente el instante que puede mentir.
+e = estado();
+let { huerfanos } = serveHuerfano(e.nombre, publicado());
+if (huerfanos.length) {
+  console.log(`[tailscale] el serve quedó bajo ${huerfanos.join(', ')} y este nodo es ` +
+    `${e.nombre}: lo rehago.`);
+  sh('sudo -n tailscale serve reset');   // `--bg` añade, no reemplaza: hay que limpiar
+  r = ponerServe();
+  if (!r.ok) {
+    console.error(`[tailscale] no pude reponer el serve:\n${r.out.slice(-400)}`);
+    process.exit(0);
+  }
+  ({ huerfanos } = serveHuerfano(e.nombre, publicado()));
+  if (huerfanos.length) {
+    // ⚠ Si tras rehacerlo SIGUE mal, se dice en voz alta en vez de terminar con
+    // un ✅: un final feliz que no comprueba el dato que decide es el fallo que
+    // este repo ya ha pagado tres veces.
+    const m = avisoDeServeHuerfano(e.nombre, publicado(), PUERTO_TS, PUERTO_WEB);
+    console.error(m);
+    avisar(m);
+    process.exit(0);
+  }
 }
 
 // ⚠⚠ Y AHORA SE COMPRUEBA QUÉ NOMBRE TE DIERON, que es lo que faltaba.
