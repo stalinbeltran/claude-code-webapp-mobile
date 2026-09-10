@@ -15,11 +15,11 @@
 // conversación de ayer como si fuera de ahora es exactamente lo que el aviso de
 // «el bot parece parado» existe para evitar.
 
-const CACHE = 'armazon-v1';
+const CACHE = 'armazon-v2';
 
 // Lo mínimo para que la app arranque y pinte. Los datos NO están aquí.
 const ARMAZON = [
-  '/', '/app.js', '/estilo.css', '/markdown.js', '/plantilla.js',
+  '/', '/app.js', '/estilo.css', '/markdown.js', '/plantilla.js', '/diagnostico.js',
   '/vendor/vue.esm-browser.prod.js', '/vendor/markdown-it.min.js',
   '/manifest.webmanifest', '/icono.svg',
 ];

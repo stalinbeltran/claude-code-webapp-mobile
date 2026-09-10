@@ -11,7 +11,7 @@ empezar a escribir código.
 |---|---|
 | [P1](#p1--dentro-del-proceso-o-servicio-aparte) | ✅ **servicio aparte** (opción B) |
 | [P2](#p2--en-qué-interfaz-escucha) | ✅ **sólo `127.0.0.1`** |
-| [P3](#p3--tailscale-y-sobrevivir-a-que-se-destruya-el-dev) | ✅ **tiene que sobrevivir al dev y relanzarse desde el mini** — factible, con tres pegas |
+| [P3](#p3--tailscale-y-sobrevivir-a-que-se-destruya-el-dev) | ✅ **tiene que sobrevivir al dev y relanzarse desde el mini** — factible, con tres pegas. ⚠⚠ **La primera PASÓ el 2026-09-10** y no dura 30-60 min: los nodos viejos no se borran nunca |
 | [P4](#p4--qué-ejecutores-entran-en-el-log) | ✅ **sólo `c`** — implementado como **dato**, no cableado |
 | [P5](#p5--se-redacta-el-log) | ✅ **sí, se redacta** |
 | [P6](#p6--por-dónde-entra-un-mensaje-de-la-web) | ✅ **fichero de entrada + eco a Telegram**, para ver la misma conversación en los dos sitios |
@@ -81,6 +81,44 @@ relanzarse desde el mini.**
 
 ⚠ Y el puerto: el **443 lo tiene `sshd` en `0.0.0.0`** en esta máquina (medido),
 o sea también en la interfaz de la tailnet. Se usa `tailscale serve --https=<otro>`.
+
+### ⚠⚠ MEDIDO el 2026-09-10: la primera pega PASÓ, y no dura 30-60 min
+
+La tabla de arriba daba la limpieza del nodo por *«30-60 min»*, leída de la
+documentación y marcada como **NO medida**. Medida ahora, es peor: **los nodos
+viejos no se borran nunca**. `tailscale status` en el dev del 2026-09-10:
+
+| nodo | estado |
+|---|---|
+| `dev` (el original) | apagado desde hacía **15 h**, todavía registrado |
+| `dev-2`, `dev-3` | apagados hacía 1 h, todavía registrados |
+| `dev-1` | **el vivo** — o sea que éste entró sufijado |
+
+O sea que **la authkey en uso no es `Ephemeral`**, que es justo el ajuste que
+[`.env.example`](../.env.example) marca como obligatorio y por este motivo. Un
+nodo efímero desaparece solo; éstos no.
+
+**Lo que costó**, y es exactamente lo que la pega predecía: la PWA instalada en
+el móvil apuntaba a `https://dev.<tailnet>:8443/`, MagicDNS lo seguía resolviendo
+—conserva los nodos apagados— y daba con una máquina muerta. Desde el móvil se
+leyó como *«la app no funciona: Failed to fetch»*. **El servidor estaba
+perfecto**: contestaba 200 por `dev-1`.
+
+⚠ **Y el remedio que la tabla propone (`borrar el nodo al destruir el droplet,
+desde el mini`) sigue SIN implementar.** Vive en el repo del lanzador, no en
+éste. Mientras no esté, hacen falta las dos cosas:
+
+1. **Que la authkey sea `Ephemeral`** — quita la causa en el caso normal.
+2. **Que el nodo nuevo AVISE si no consiguió su nombre** — cubre el caso en que
+   aun así pase. Implementado el 2026-09-10 en `scripts/nodo.mjs`, y lo usan
+   `tailscale-unir.mjs` (al aprovisionar, con aviso por Telegram) y `cweb url`
+   (que es lo que se pregunta desde el móvil cuando la app falla).
+
+**Por qué hacía falta la 2 aunque exista la 1:** `tailscale up --hostname=dev`
+**no falla** cuando el nombre está ocupado. Sufija y sale con **código 0**, el
+`serve` queda puesto y la web contesta 200. Todo verde, y todo cliente instalado
+fuera. Es la regla del proyecto: *`Result=success` no dice que se hiciera lo que
+pediste* — se comprueba **el nombre que te dieron**, no el código de salida.
 
 ## P4 · ¿Qué ejecutores entran en el log?
 

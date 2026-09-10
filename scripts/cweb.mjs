@@ -13,10 +13,15 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { avisoDeDeriva } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
 const PUERTO = process.env.CWEB_PORT ?? '8020';
+const PUERTO_TS = process.env.CWEB_PUERTO_TS ?? '8443';
+/** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
+ *  porque es el que quedó escrito en la PWA instalada en el móvil. */
+const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
 
 /** El `data/` del coordinador: de dónde sale el log que esta web lee.
  *  Se DECLARA con `CWEB_DATA_DIR`; el defecto es el sitio de siempre, y si no
@@ -98,6 +103,13 @@ function estado() {
   return viva ? 0 : 1;
 }
 
+/** El nombre DNS real de este nodo, o null si no está en la tailnet. Se PREGUNTA. */
+function nombreDelNodo() {
+  const r = sh('tailscale status --json 2>/dev/null');
+  if (!r.startsWith('{')) return null;
+  try { return JSON.parse(r).Self?.DNSName?.replace(/\.$/, '') || null; } catch { return null; }
+}
+
 /**
  * La dirección desde la que se llega, LEÍDA del estado real de `tailscale serve`.
  *
@@ -114,7 +126,13 @@ function url() {
   const s = sh('tailscale serve status 2>/dev/null');
   const publicada = (s.match(/https:\/\/\S+/) || [])[0];
   if (publicada) {
-    return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/`;
+    // ⚠⚠ Y se dice si el nodo NO se llama como debería. Ésta es la pregunta que
+    // se hace justo cuando la app «no funciona» desde el móvil, así que es donde
+    // tiene que estar la respuesta: una URL correcta a secas no explica por qué
+    // la que tienes guardada dejó de servir (medido el 2026-09-10).
+    const deriva = avisoDeDeriva(NOMBRE, nombreDelNodo(), PUERTO_TS);
+    return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/` +
+      (deriva ? `\n\n${deriva}` : '');
   }
   const nodo = sh('tailscale status --json 2>/dev/null');
   const dentro = nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo);

@@ -23,6 +23,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { avisoDeDeriva, nombreCorto } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
@@ -31,6 +32,17 @@ const PUERTO_WEB = process.env.CWEB_PORT ?? '8020';
 // también en la interfaz de la tailnet. Se mueve esto, no `sshd`.
 const PUERTO_TS = process.env.CWEB_PUERTO_TS ?? '8443';
 const SECO = process.argv.includes('--seco');
+
+/** Avisa por Telegram. ⚠ NUNCA puede tumbar esto: es una comodidad, y este
+ *  script corre dentro del aprovisionamiento (regla del coordinador: si el aviso
+ *  puede matar el trabajo, ya no es una comodidad). */
+function avisar(texto) {
+  try {
+    const COORD = process.env.COORD_HOME || join(process.env.HOME || '', 'src', 'telegram-coordinator');
+    execFileSync(process.execPath, [join(COORD, 'scripts', 'notify.mjs')],
+      { input: texto, timeout: 30_000, stdio: ['pipe', 'ignore', 'ignore'] });
+  } catch { /* el log de esta unidad sigue siendo la fuente de verdad */ }
+}
 
 const sh = (cmd, env) => {
   try { return { ok: true, out: execSync(cmd, { encoding: 'utf8', timeout: 180_000, env: env ?? process.env }).trim() }; }
@@ -63,6 +75,8 @@ if (SECO) {
   console.log('🧪 SECO — no he tocado nada.');
   console.log(`   tailscale instalado : ${e.instalado ? 'sí' : 'NO, lo instalaría'}`);
   console.log(`   nodo en la tailnet  : ${e.dentro ? `sí (${e.nombre})` : 'NO, lo uniría'}`);
+  console.log(`   nombre pedido       : ${NOMBRE}${
+    e.dentro && nombreCorto(e.nombre) !== NOMBRE ? `  ⚠ pero se llama "${nombreCorto(e.nombre)}"` : ''}`);
   console.log(`   authkey disponible  : ${clave ? 'sí (no se imprime)' : 'NO'}`);
   console.log(`   serve que pondría   : --https=${PUERTO_TS} → http://127.0.0.1:${PUERTO_WEB}`);
   process.exit(0);
@@ -99,5 +113,18 @@ const r = sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1
 if (!r.ok) {
   console.error(`[tailscale] el nodo está dentro, pero no pude poner el serve:\n${r.out.slice(-400)}`);
   process.exit(0);
+}
+
+// ⚠⚠ Y AHORA SE COMPRUEBA QUÉ NOMBRE TE DIERON, que es lo que faltaba.
+// Hasta el 2026-09-10 esto terminaba aquí con un ✅: el `up` había salido con 0,
+// el `serve` estaba puesto y la web contestaba. Todo verde, y aun así la app
+// instalada en el móvil acababa de quedarse apuntando a un server muerto porque
+// el nodo había entrado como `dev-1`. Un final feliz que no comprueba el dato
+// que decide es el fallo que este proyecto ya ha pagado tres veces.
+const deriva = avisoDeDeriva(NOMBRE, e.nombre, PUERTO_TS);
+if (deriva) {
+  console.error(deriva);
+  avisar(deriva);
+  process.exit(0);   // ⚠ 0 siempre: corre dentro del aprovisionamiento
 }
 console.log(`✅ Listo: https://${e.nombre ?? NOMBRE}:${PUERTO_TS}/`);

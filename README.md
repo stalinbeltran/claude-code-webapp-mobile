@@ -60,6 +60,43 @@ tú  → arrancar       ← lo vuelve a levantar
 tú  → instalar       ← recrea la unidad de systemd, si se perdió al rehacer la máquina
 ```
 
+#### ⚠⚠ «No pude leer las conversaciones: Failed to fetch» — casi siempre es la URL, no la app
+
+**Lo primero: pide la dirección de ahora.** `/use cweb` → `url`. Si el nodo ha
+cambiado de nombre, esa orden te lo dice y te da la buena.
+
+**Por qué pasa, medido el 2026-09-10.** Estos servidores se rehacen, y el nodo
+nuevo **no siempre recupera su nombre**: si en la tailnet queda un nodo apagado
+llamado `dev`, Tailscale mete al nuevo como `dev-1` — **sin fallar**, con código
+0 y con la web contestando 200 por su nombre nuevo. Ese día había cuatro nodos
+`dev` (uno vivo y tres muertos).
+
+Y el síntoma engaña por dos motivos que se suman:
+
+| | |
+|---|---|
+| MagicDNS **conserva** los nodos apagados | `dev.<tailnet>` sigue resolviendo, a una máquina que ya no existe |
+| El service worker sirve el armazón desde caché, pero **`/api/` nunca** | la app **abre normal** y sólo fallan los datos — que es justo lo que te convence de que el servidor está ahí |
+
+Así que lo que se lee desde el móvil es «la app está rota» cuando el servidor
+está perfecto. **La app ya no dice sólo `Failed to fetch`**: nombra el origen
+contra el que falló, avisa de que lo que ves viene de la caché, y da las dos
+causas (Tailscale apagado en el móvil · la máquina cambió de nombre).
+
+**Cómo se arregla del todo**, y hay que hacer los tres pasos o vuelve a pasar:
+
+1. Borra los nodos apagados que se llamen `dev` en
+   [la consola](https://login.tailscale.com/admin/machines).
+2. `node scripts/tailscale-unir.mjs` para reclamar el nombre.
+3. ⚠ **La causa de fondo es la authkey: tiene que ser `Ephemeral`**
+   ([`.env.example`](.env.example) lo pide, y por esto). Sin eso, cada dev
+   destruido deja un nodo muerto ocupando el nombre.
+
+Mientras tanto la URL con sufijo funciona: sólo hay que reinstalar la PWA desde
+ella. **Y `tailscale-unir.mjs` ya no se calla**: compara el nombre que pidió con
+el que le dieron y avisa por Telegram si no coinciden — `Result=success` no dice
+que se hiciera lo que pediste.
+
 ## Qué se ve dentro
 
 - **La lista de conversaciones**, la más reciente arriba, con la hora y un
@@ -77,9 +114,14 @@ tú  → instalar       ← recrea la unidad de systemd, si se perdió al rehace
 
 ## Estado
 
-**Fases 1 y 2 completas**, más la purga y la PWA de la fase 4. Lo que falta para
-poder usarla desde el móvil **no es código**: es Tailscale, que necesita una
-decisión y una authkey ([`docs/decisiones.md`](docs/decisiones.md), P3).
+**Fases 1 y 2 completas**, más la purga y la PWA de la fase 4. **Tailscale ya
+está puesto**: la web se sirve por `tailscale serve` en el puerto **8443** (no el
+443, que aquí lo tiene `sshd`) y se usa desde el móvil.
+
+⚠ **La dirección depende del NOMBRE del nodo, y ese nombre puede cambiar al
+rehacer la máquina.** No la escribas de memoria: pídela con `/use cweb` → `url`,
+que la lee del estado real. El caso en que cambia, y qué hacer, arriba en
+[«Failed to fetch»](#-no-pude-leer-las-conversaciones-failed-to-fetch--casi-siempre-es-la-url-no-la-app).
 
 | Documento | Qué contesta |
 |---|---|

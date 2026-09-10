@@ -10,13 +10,22 @@
 import { createApp, ref, computed, onMounted } from './vendor/vue.esm-browser.prod.js';
 import { crearRenderer } from './markdown.js';
 import { PLANTILLA } from './plantilla.js';
+import { SinRed, explicarFallo } from './diagnostico.js';
 
 // `window.markdownit` lo deja el UMD que carga index.html (no distribuye ESM).
 // La configuración vive en su propio módulo para poder probarla sin navegador.
 const md = crearRenderer(window.markdownit);
 
+// ⚠ Los dos fallos se separan aquí y no en el `catch` de cada llamada: «no
+// llegué al servidor» y «contestó 500» piden mensajes distintos, y desde el
+// móvil el primero es el que hay que explicar entero (ver `diagnostico.js`).
 const api = async (ruta) => {
-  const r = await fetch(ruta, { headers: { accept: 'application/json' } });
+  let r;
+  try {
+    r = await fetch(ruta, { headers: { accept: 'application/json' } });
+  } catch (e) {
+    throw new SinRed(e, ruta);
+  }
   if (!r.ok) throw new Error(`${r.status} en ${ruta}`);
   return r.json();
 };
@@ -69,7 +78,7 @@ createApp({
       } catch (e) {
         // Se DICE que no se pudo, en vez de enseñar una lista vacía — que se
         // leería como «no has hablado con claude nunca».
-        error.value = `No pude leer las conversaciones: ${e.message}`;
+        error.value = explicarFallo(e, 'leer las conversaciones', location.origin);
       } finally { cargando.value = false; }
     }
 
@@ -82,7 +91,7 @@ createApp({
         ejecutor.value = r.ejecutor ?? { nombre: null, registra: null };
         requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
       } catch (e) {
-        error.value = `No pude leer esta conversación: ${e.message}`;
+        error.value = explicarFallo(e, 'leer esta conversación', location.origin);
       } finally { cargando.value = false; }
     }
 
@@ -94,7 +103,7 @@ createApp({
           `/mensajes?desde=${encodeURIComponent(primero.id)}`);
         mensajes.value = [...r.mensajes, ...mensajes.value];
         hayMas.value = r.hay_mas;
-      } catch (e) { error.value = e.message; }
+      } catch (e) { error.value = explicarFallo(e, 'traer lo más antiguo', location.origin); }
     }
 
     const ejecutor = ref({ nombre: null, registra: null });
@@ -142,17 +151,22 @@ createApp({
       enviando.value = true;
       error.value = '';
       try {
-        const r = await fetch(`/api/sesiones/${encodeURIComponent(abierta.value)}/mensajes`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ texto }),
-        });
+        let r;
+        try {
+          r = await fetch(`/api/sesiones/${encodeURIComponent(abierta.value)}/mensajes`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ texto }),
+          });
+        } catch (fallo) { throw new SinRed(fallo, 'enviar'); }
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || `${r.status}`);
         borrador.value = '';
         requestAnimationFrame(crecer);
       } catch (e) {
-        error.value = `No pude enviarlo: ${e.message}. Sigue escrito aquí abajo.`;
+        error.value = e?.sinRed
+          ? explicarFallo(e, 'enviarlo', location.origin) + '\n\nSigue escrito aquí abajo.'
+          : `No pude enviarlo: ${e.message}. Sigue escrito aquí abajo.`;
       } finally {
         enviando.value = false;
       }
