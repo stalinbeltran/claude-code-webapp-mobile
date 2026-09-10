@@ -120,9 +120,17 @@ switch (orden) {
   case 'arrancar': console.log(sh(`sudo -n systemctl start ${UNIDAD}`) || '▶️ arrancada'); estado(); break;
   case 'parar': console.log(sh(`sudo -n systemctl stop ${UNIDAD}`) || '⏹️ parada'); break;
   case 'log': console.log(sh(`journalctl -u ${UNIDAD} -n 40 -o cat --no-pager`)); break;
+  case 'tailscale': {
+    // Relanza el configurador. Hace falta poder hacerlo DESDE TELEGRAM: la
+    // primera vez suele faltar un permiso en la tailnet, y quien lo da está en
+    // el móvil, no delante de la máquina.
+    const r = sh(`sudo -n systemctl start ts-serve 2>&1; sleep 8; tail -12 /tmp/ts-serve.log`);
+    console.log(r || '(sin salida: mira `systemctl status ts-serve`)');
+    break;
+  }
   default:
     // ⚠ El último caso SE NIEGA, nunca es una acción por defecto: así es como se
     // acaba corriendo lo que nadie pidió (medido el 2026-09-08 en otro lanzador).
-    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log`);
+    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · tailscale`);
     process.exit(2);
 }

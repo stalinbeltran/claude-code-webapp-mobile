@@ -70,9 +70,14 @@ console.log(`[serve] nodo conectado: ${nombre}`);
 // `tailscale serve` sin él se queda en primer plano y al morir deja de servir.
 const r = sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1:${PUERTO_WEB}`);
 if (!r.ok) {
-  const pistaHttps = /HTTPS|cert|certificate/i.test(r.out)
-    ? '\n\n⚠ Parece que falta habilitar HTTPS en la tailnet: consola de Tailscale → ' +
-      'DNS → «Enable HTTPS». Es un clic, y sin él no hay certificado válido.'
+  // ⚠ Tailscale ya imprime el enlace EXACTO para dar el permiso que falta, con el
+  // id de este nodo dentro. Repetirlo con palabras propias («ve a DNS → Enable
+  // HTTPS») obliga a buscarlo a mano y además puede envejecer mal si cambian su
+  // consola. Se pasa el suyo tal cual; la explicación sólo acompaña.
+  const enlace = (r.out.match(/https:\/\/login\.tailscale\.com\/\S+/) || [])[0];
+  const pistaHttps = enlace
+    ? `\n\n👉 Falta un permiso en tu tailnet, y es un clic:\n${enlace}\n\n` +
+      'Cuando lo des, vuelve a lanzarlo con:  /use cweb → tailscale'
     : '';
   const m = `❌ No pude poner la web detrás de Tailscale:\n${r.out.slice(-600)}${pistaHttps}`;
   console.error(m);
