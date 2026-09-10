@@ -15,7 +15,8 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir, nodosAReclamar } from '../scripts/nodo.mjs';
+import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir, nodosAReclamar,
+         ordenDeDesunir } from '../scripts/nodo.mjs';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -213,4 +214,41 @@ test('una tailnet sin ese nombre no da nada que borrar, y sin avisos de alarma',
   const { borrar, avisos } = nodosAReclamar(otros, 'dev', { ahora: AHORA });
   assert.deepEqual(borrar, []);
   assert.deepEqual(avisos, [], 'no hay nada que decir: el nombre está libre');
+});
+
+// ---------------------------------------------------------------------------
+// Darse de baja: el simétrico de unirse, y lo que hace que no haga falta
+// ninguna credencial. MEDIDO el 2026-09-10 en el dev: `tailscale logout` borró
+// el nodo y el nombre `dev-1` se reutilizó en 2 s, contra los ~75 min de la
+// limpieza por inactividad.
+// ---------------------------------------------------------------------------
+
+test('⚠⚠ desunirse NO necesita ninguna credencial: usa la del propio nodo', () => {
+  const orden = ordenDeDesunir();
+  assert.match(orden, /tailscale logout/);
+  // Ésta es la propiedad que hace que toda la opción valga: si aquí apareciera
+  // una clave, volveríamos al problema de repartir un token capaz de borrar
+  // cualquier dispositivo de la tailnet, incluido el móvil del dueño.
+  assert.ok(!/tskey-|auth-key|authkey|client_secret|--token/i.test(orden),
+    'si desunirse necesitara una clave, no serviría para lo que existe');
+});
+
+test('⚠ el script de desunir es SECO por defecto y sale SIEMPRE con 0', () => {
+  const s = readFileSync(join(RAIZ, 'scripts', 'tailscale-desunir.mjs'), 'utf8');
+  assert.match(s, /--si/, 'para desunir de verdad hay que pedirlo');
+  // Lo corre el `pre_destroy` del lanzador justo antes de destruir el droplet.
+  // Un exit ≠ 0 ahí podría leerse como «no destruyas», y eso convierte una
+  // molestia (nombre ocupado un rato) en una factura (droplet vivo).
+  assert.ok(!/process\.exit\([^0)]/.test(s), 'nunca puede impedir que se destruya el droplet');
+  assert.match(s, /catch/, 'un fallo al desunir se DICE y se sigue');
+});
+
+test('⚠ y el seco va ANTES de cualquier comprobación que pueda negarse', () => {
+  const s = readFileSync(join(RAIZ, 'scripts', 'tailscale-desunir.mjs'), 'utf8');
+  const iSeco = s.indexOf("includes('--si')");
+  const iComprueba = s.indexOf('BackendState');
+  assert.ok(iSeco > 0 && iComprueba > 0);
+  assert.ok(iSeco < iComprueba,
+    'un ensayo no desune nada, así que no puede hacer daño — y bloquearlo ' +
+    'impediría mirar qué pasaría justo cuando más falta hace (lección de banco-k)');
 });

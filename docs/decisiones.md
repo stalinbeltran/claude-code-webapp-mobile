@@ -128,9 +128,56 @@ el móvil apuntaba a `https://dev.<tailnet>:8443/`, MagicDNS lo seguía resolvie
 leyó como *«la app no funciona: Failed to fetch»*. **El servidor estaba
 perfecto**: contestaba 200 por `dev-1`.
 
+### ✅ RESUELTO el 2026-09-10: el nodo se da de baja SOLO, y sin ninguna credencial
+
+**La carrera de los ~75 min está cerrada.** No esperando menos: quitando la espera.
+
+⚠⚠ **La medición que lo decidió, porque la doc no bastaba.** Tailscale documenta
+que `tailscale logout` *«removes it from your tailnet immediately»* — pero **esa
+misma página da la limpieza por inactividad en «30 a 60 minutos» y aquí se
+midieron ~75**. Una fuente que ya se quedó corta en el número de al lado no vale
+para el número que decide. Medido en este dev:
+
+| hora (UTC) | |
+|---|---|
+| 18:35:38 | `Self ID` = `nznvvWsNKE11CNTRL`, **3** nodos en la tailnet |
+| 18:35:51 | `sudo tailscale logout` |
+| 18:35:53 | vuelto a unir → `Self ID` = `nbjCKGjnuo11CNTRL`, y **otra vez `dev-1`** |
+| 18:36:08 | **3** nodos. El ID viejo **no existe** |
+
+Que recuperase el nombre `dev-1` en **2 s** es la prueba: si el viejo siguiera
+registrado, el nuevo habría entrado como `dev-2`.
+
+**La forma, y por qué ésta y no la API.** El lanzador gana un gancho **genérico**
+`pre_destroy` en `services/*.json` —el simétrico del `install`— y el comando lo
+pone este repo: `node scripts/tailscale-desunir.mjs --si`. El nodo se da de baja
+**con su propia clave**, así que **la pregunta de la credencial desaparece en vez
+de resolverse**: no hay nada potente que repartir, que caducar, ni que redactar
+de las conversaciones archivadas.
+
+⚠ La alternativa —que el lanzador llamara a `DELETE /api/v2/device/{id}`— exigía
+un OAuth client capaz de borrar **cualquier** dispositivo de la tailnet, incluido
+el móvil del dueño. Y se descartó además por un hecho comprobado ese día:
+`types/mini.json` y `types/dev.json` llevan **los dos** `llavero: true`, así que
+*«la credencial sólo en el mini»* **hoy no existe** — habría que inventar antes un
+alcance por máquina en el llavero. (La lógica de esa vía quedó escrita y probada
+en `scripts/tailscale-reclamar.mjs` como respaldo, y **no se usa**.)
+
+⚠⚠ **Y la recogida NO puede impedir que se destruya el droplet.** Timeout corto,
+se traga cualquier fallo y sigue: si pudiera tumbar el apagado, una molestia —el
+nombre ocupado un rato— se convertiría en una **factura** —un droplet vivo que
+nadie apaga—. Es la lección del 2026-09-04 llevada a la estructura, y tiene test
+en las cinco ramas de fallo (`tests/test_pre_destroy.py` del lanzador).
+
+**Lo que NO cubre**, dicho claro: un droplet que muera **sin** pasar por `destroy`
+(consola de DO, caída) sigue esperando los ~75 min. Ahí el freno es que
+`avisoDeDeriva()` lo **dice** por Telegram en vez de dejar la URL muerta en
+silencio.
+
 ⚠ **Y el remedio que la tabla propone (`borrar el nodo al destruir el droplet,
-desde el mini`) sigue SIN implementar.** Vive en el repo del lanzador, no en
-éste. Mientras no esté, hacen falta las dos cosas:
+desde el mini`) queda hecho, pero del revés de como lo proponía**: no lo borra el
+mini llamando a la API, lo borra **la propia máquina** antes de morir. Mientras
+no estuvo, hacían falta las dos cosas:
 
 1. **Que la authkey sea `Ephemeral`** — ya lo es, comprobado arriba. Cubre el
    caso normal: cada dev destruido se borra solo en ~1 h.

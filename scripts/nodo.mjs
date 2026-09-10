@@ -199,3 +199,33 @@ export function nodosAReclamar(devices, nombre, opciones = {}) {
   }
   return { borrar, avisos };
 }
+
+
+/**
+ * La orden con la que este nodo se da de baja de la tailnet.
+ *
+ * ⚠⚠ MEDIDO EL 2026-09-10, y es lo que hace que todo esto exista: `logout`
+ * borra un nodo efímero **al instante**, no en los ~75 min que tarda la
+ * limpieza por inactividad. Comprobado en esta máquina:
+ *
+ *   18:35:38  Self ID `nznvvWsNKE11CNTRL`, 3 nodos en la tailnet
+ *   18:35:51  sudo tailscale logout
+ *   18:35:53  vuelto a unir -> Self ID `nbjCKGjnuo11CNTRL`, y otra vez `dev-1`
+ *   18:36:08  3 nodos. El ID viejo NO existe.
+ *
+ * Que recuperase el nombre `dev-1` en 2 s es la prueba: si el viejo siguiera
+ * registrado, el nuevo habría entrado como `dev-2`.
+ *
+ * ⚠ La doc de Tailscale dice justo esto («removes it from your tailnet
+ * immediately»), pero **se midió igual**: esa misma página da la limpieza por
+ * inactividad en «30 a 60 minutos» y aquí se midieron ~75. Una doc que ya se
+ * quedó corta en el número de al lado no es una fuente para el que decide.
+ *
+ * Por qué esto vale más que borrar por API: el nodo se da de baja con SU PROPIA
+ * clave, así que no hay ninguna credencial que repartir, que caducar, ni que
+ * redactar de las conversaciones archivadas. La pregunta de dónde guardar un
+ * token que puede borrar cualquier dispositivo **desaparece**.
+ */
+export function ordenDeDesunir() {
+  return 'sudo -n tailscale logout';
+}
