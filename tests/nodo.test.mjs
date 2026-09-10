@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir } from '../scripts/nodo.mjs';
+import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir, nodosAReclamar } from '../scripts/nodo.mjs';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -137,4 +137,80 @@ test('⚠ y el fichero de la clave lleva su regla de caducidad (regla 3)', () =>
   assert.match(s, /mode: 0o600/, 'un fichero con una clave no puede nacer legible por todos');
   assert.match(s, /finally[\s\S]{0,200}rmSync/,
     'se borra pase lo que pase: un secreto en disco sin dueño vivo es el fallo del .resume.lock');
+});
+
+// ---------------------------------------------------------------------------
+// Reclamar el nombre. AQUÍ SE BORRA DE VERDAD, así que el esfuerzo de prueba va
+// por la consecuencia del fallo (R10): borrar de menos deja la URL muerta un
+// rato; borrar de más echa de la tailnet una máquina viva — y en ésta está el
+// móvil del dueño.
+// ---------------------------------------------------------------------------
+
+/** Los cuatro nodos reales del 2026-09-10, tal como los devolvería la API. */
+const AHORA = new Date('2026-09-10T17:36:00Z');
+const COMO_AQUEL_DIA = [
+  { id: '1', name: 'dev-1.ejemplo.ts.net', hostname: 'dev', lastSeen: '2026-09-10T17:35:58Z' }, // el VIVO
+  { id: '2', name: 'dev.ejemplo.ts.net',   hostname: 'dev', lastSeen: '2026-09-10T02:35:38Z' }, // el que estorba
+  { id: '3', name: 'dev-2.ejemplo.ts.net', hostname: 'dev', lastSeen: '2026-09-10T16:37:32Z' },
+  { id: '4', name: 'redmi-note-12.ejemplo.ts.net', hostname: 'Redmi Note 12', lastSeen: '2026-09-10T17:35:00Z' },
+];
+
+test('⚠⚠ el caso real: borra el que estorba y NADA más', () => {
+  const { borrar } = nodosAReclamar(COMO_AQUEL_DIA, 'dev', { ahora: AHORA });
+  assert.deepEqual(borrar.map((d) => d.name), ['dev.ejemplo.ts.net']);
+});
+
+test('⚠⚠ casa por el FQDN, NO por el hostname: los cuatro se llamaban `dev`', () => {
+  // Casar por `hostname` habría borrado el nodo VIVO y el móvil del dueño.
+  const { borrar } = nodosAReclamar(COMO_AQUEL_DIA, 'dev', { ahora: AHORA });
+  assert.ok(!borrar.some((d) => d.name.startsWith('dev-1')), 'ése es el vivo');
+  assert.ok(!borrar.some((d) => d.name.includes('redmi')), 'ése es el móvil del dueño');
+});
+
+test('⚠⚠ NUNCA borra uno que parezca vivo, aunque ocupe el nombre', () => {
+  const vivo = [{ id: '9', name: 'dev.ejemplo.ts.net', lastSeen: '2026-09-10T17:35:58Z' }];
+  const { borrar, avisos } = nodosAReclamar(vivo, 'dev', { ahora: AHORA });
+  assert.deepEqual(borrar, [], 'visto hace 2 s: eso es una máquina viva');
+  assert.match(avisos.join('\n'), /PARECE VIVO/, 'y lo que no se borra se DICE (regla 4)');
+});
+
+test('⚠ bajar el umbral a 0 sólo vale con prueba de que la máquina ya no existe', () => {
+  // Es lo que hace el lanzador DESPUÉS de que DigitalOcean confirme el borrado:
+  // ahí `lastSeen` ya no significa nada y esperar sería esperar por nada.
+  const reciente = [{ id: '9', name: 'dev.ejemplo.ts.net', lastSeen: '2026-09-10T17:35:58Z' }];
+  const { borrar } = nodosAReclamar(reciente, 'dev', { ahora: AHORA, inactivoDesdeMs: 0 });
+  assert.deepEqual(borrar.map((d) => d.id), ['9']);
+});
+
+test('⚠ un id excluido no se toca, y se dice', () => {
+  const { borrar, avisos } = nodosAReclamar(COMO_AQUEL_DIA, 'dev', { ahora: AHORA, excluirIds: ['2'] });
+  assert.deepEqual(borrar, []);
+  assert.match(avisos.join('\n'), /excluido a mano/);
+});
+
+test('⚠⚠ si la lista no se pudo leer, NO borra nada (el `NO SÉ` del freno)', () => {
+  for (const basura of [null, undefined, 'vaya', {}, 0]) {
+    const { borrar, avisos } = nodosAReclamar(basura, 'dev', { ahora: AHORA });
+    assert.deepEqual(borrar, [], `con ${JSON.stringify(basura)} no se borra nada`);
+    assert.ok(avisos.length > 0, 'y no se calla: no saber es un resultado');
+  }
+});
+
+test('sin nombre que reclamar no se borra nada', () => {
+  const { borrar } = nodosAReclamar(COMO_AQUEL_DIA, '', { ahora: AHORA });
+  assert.deepEqual(borrar, []);
+});
+
+test('un `lastSeen` ilegible cuenta como MUERTO, no como vivo', () => {
+  // Un nodo sin fecha legible lleva ahí desde siempre: es basura, no una máquina
+  // en marcha. Y aun así sólo se borra si casa el nombre exacto.
+  const raro = [{ id: '7', name: 'dev.ejemplo.ts.net', lastSeen: 'ni idea' }];
+  assert.deepEqual(nodosAReclamar(raro, 'dev', { ahora: AHORA }).borrar.map((d) => d.id), ['7']);
+});
+
+test('una tailnet sin ese nombre no da nada que borrar, y sin avisos de alarma', () => {
+  const otros = [{ id: '5', name: 'mini.ejemplo.ts.net', lastSeen: '2026-01-01T00:00:00Z' }];
+  const { borrar, avisos } = nodosAReclamar(otros, 'dev', { ahora: AHORA });
+  assert.deepEqual(borrar, []);
+  assert.deepEqual(avisos, [], 'no hay nada que decir: el nombre está libre');
 });

@@ -120,3 +120,82 @@ export function ordenDeUnir(rutaClave, nombre) {
   return `sudo -n tailscale up --auth-key=file:${rutaClave} ` +
     `--hostname=${nombre} --accept-dns=false`;
 }
+
+// ---------------------------------------------------------------------------
+// Reclamar el nombre: QUÉ nodos se pueden borrar, que es donde está el riesgo.
+// ---------------------------------------------------------------------------
+//
+// Por qué hace falta, y por qué no basta con esperar: la authkey es efímera y
+// los nodos muertos se borran solos, pero tardan **~75 min** (medido el
+// 2026-09-10). Eso deja una CARRERA: rehacer el dev antes de esa ventana
+// encuentra el nombre ocupado y entra sufijado. Borrarlo explícitamente al
+// destruir el droplet cierra la ventana entera (R11: quien apaga, limpia).
+//
+// ⚠⚠ Y AQUÍ SE BORRA DE VERDAD, así que la cautela va en el código y no en el
+// que llama. La API de Tailscale **no devuelve ningún booleano `online`** — sólo
+// `lastSeen` (comprobado en el esquema de `GET /api/v2/tailnet/-/devices`, que
+// trae `id`, `name`, `hostname`, `lastSeen`, `addresses`, `authorized`). O sea
+// que «está muerto» hay que DERIVARLO, y derivarlo mal se lleva por delante una
+// máquina viva: en esta tailnet está el móvil del dueño.
+//
+// Las cuatro reglas, y las cuatro tienen test:
+//
+//  1. **Sólo el que ocupa EXACTAMENTE el nombre pedido.** Se compara la primera
+//     etiqueta del `name` (el FQDN), no el `hostname`: los cuatro nodos de aquel
+//     día tenían `hostname: "dev"` y se llamaban `dev`, `dev-1`, `dev-2`, `dev-3`.
+//     Casar por `hostname` los habría borrado todos, incluido el vivo.
+//  2. **Nunca uno que parezca vivo.** Sin `online`, «vivo» es `lastSeen`
+//     reciente. El defecto es conservador y quien quiera bajarlo tiene que
+//     PROBAR que está muerto (ver `inactivoDesdeMs`).
+//  3. **Nunca uno excluido a mano** (el propio nodo). Cinturón y tirantes: si el
+//     que pregunta ya está dentro de la tailnet, no puede autoborrarse.
+//  4. **Lo que NO se borra se DICE.** Un nodo que ocupa el nombre y está vivo es
+//     justo el caso que hay que mirar; saltárselo en silencio deja el fallo
+//     original (la URL muerta) sin explicación.
+
+/** La primera etiqueta del FQDN de un device de la API. */
+const etiqueta = (d) => String(d?.name ?? '').replace(/\.$/, '').split('.')[0] || '';
+
+/**
+ * Qué nodos se pueden borrar para dejar libre `nombre`.
+ *
+ * @param {Array} devices           lo que devuelve `GET /api/v2/tailnet/-/devices`
+ * @param {string} nombre           el nombre que se quiere reclamar (p. ej. `dev`)
+ * @param {object} opciones
+ *   · `ahora`            Date, para poder probarlo sin depender del reloj
+ *   · `inactivoDesdeMs`  cuánto tiene que llevar callado para darlo por muerto.
+ *     ⚠ El defecto son 5 min. Se puede bajar a 0 **sólo con una prueba de que la
+ *     máquina ya no existe** — p. ej. justo después de que DigitalOcean confirme
+ *     que el droplet se destruyó. Ahí `lastSeen` ya no significa nada y esperar
+ *     sería esperar por nada.
+ *   · `excluirIds`       ids que no se tocan pase lo que pase
+ * @returns {{borrar: Array, avisos: string[]}}
+ */
+export function nodosAReclamar(devices, nombre, opciones = {}) {
+  const { ahora = new Date(), inactivoDesdeMs = 5 * 60 * 1000, excluirIds = [] } = opciones;
+  const avisos = [];
+  // Una respuesta que no es una lista no es «no hay nada»: es que no lo sé, y no
+  // se borra nada por no saber (el mismo criterio que el `NO SÉ` del freno).
+  if (!Array.isArray(devices)) return { borrar: [], avisos: ['la lista de nodos no se pudo leer: no borro nada'] };
+  if (!nombre) return { borrar: [], avisos: ['sin nombre que reclamar: no borro nada'] };
+
+  const borrar = [];
+  for (const d of devices) {
+    if (etiqueta(d) !== nombre) continue;                       // regla 1
+    if (excluirIds.includes(d?.id)) {                            // regla 3
+      avisos.push(`\`${d.name}\` ocupa el nombre pero está excluido a mano: no lo toco`);
+      continue;
+    }
+    const visto = Date.parse(d?.lastSeen ?? '');
+    const callado = Number.isNaN(visto) ? Infinity : ahora.getTime() - visto;
+    if (callado < inactivoDesdeMs) {                             // regla 2
+      avisos.push(                                               // regla 4
+        `⚠ \`${d.name}\` ocupa el nombre "${nombre}" y PARECE VIVO ` +
+        `(visto hace ${Math.round(callado / 1000)} s): NO lo borro. ` +
+        `Si de verdad está muerto, se borra a mano en la consola.`);
+      continue;
+    }
+    borrar.push(d);
+  }
+  return { borrar, avisos };
+}
