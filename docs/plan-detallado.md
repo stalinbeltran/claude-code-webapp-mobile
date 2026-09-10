@@ -474,7 +474,7 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
   caído. Hay un test que comprueba el **orden real en el código**.
 - **terminado** ✅ 5 tests. Commit `9ddca6e`.
 
-### T4.3 · Tailscale en esta máquina
+### T4.3 · ✅ HECHA (2026-09-10) · Tailscale en esta máquina
 
 - **qué** Instalar, unir a la tailnet, `tailscale serve` al puerto del servidor.
 - ⚠ **Dos obstáculos medidos hoy, ninguno en la especificación:**
@@ -485,6 +485,15 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - **Y el aviso de Android**: excluir Tailscale de la optimización de batería. Si
   el sistema lo mata en segundo plano, la web deja de resolver **sin explicación
   visible** y el síntoma parece del servidor.
+- **terminado** ✅ **2026-09-10, funcionando y usado desde el móvil.**
+  `https://dev.tail376e31.ts.net:8443/` — HTTPS con certificado válido, la PWA
+  instalada. Commits `0dac67d`, `9ad5f22`, `c4f677a`.
+- ⚠ **Hicieron falta DOS permisos, no uno**: autorizar el nodo, y habilitar
+  `serve` en la tailnet (un enlace aparte, que Tailscale imprime con el id del
+  nodo dentro).
+- ⚠ **El puerto es 8443**, porque `sshd` ocupa el 443 en todas las interfaces. Se
+  movió esto y no `sshd`: cambiar el puerto de entrada a la máquina, desde dentro
+  de la máquina, es la clase de cambio que te deja fuera.
 
 ### T4.4 · Que sobreviva a que se destruya el `dev` — ✅ el requisito del dueño
 
