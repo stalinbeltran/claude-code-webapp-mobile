@@ -1,5 +1,36 @@
 # ⏳ PENDIENTE de verificar: lo que se construyó el 2026-09-10 y NO se ha visto funcionar entero
 
+## ⏳ AÑADIDO el 2026-09-11 (noche): el certificado que viaja con la flota
+
+Construido el 2026-09-11 (`scripts/certificado.mjs`, `tests/certificado.test.mjs`)
+y **no visto en vivo con un certificado real**, porque Let's Encrypt no abre el
+límite hasta el **2026-09-12 a las 20:03 UTC** (`retry after` del 429 en el journal
+de tailscaled del dev). Lo que hay que ver, en orden, y lo que se espera en cada paso:
+
+1. **Pedir el primero** (después de esa hora, en el dev vivo): `CWEB_TS_ESQUEMA=https`
+   en el `.env` del lanzador (o en el `.env` de este repo), `tailscale` desde
+   `/use cweb`, y abrir `https://dev.tail376e31.ts.net:8443/` desde el móvil.
+   Esperado: `[cert] no hay certificado en el entorno…` en la salida, y en el
+   journal `cert("dev.tail376e31.ts.net"): …` seguido de un certificado nuevo en
+   `/var/lib/tailscale/certs/` (`sudo ls -la`, dos ficheros nuevos). La web carga y
+   Android ofrece «Añadir a pantalla de inicio».
+2. **Guardarlo**: en el dev, `python3 scripts/do_droplet.py entornos recoger`
+   (repo del lanzador). Esperado: «claude-code-webapp-mobile: recogidas
+   CWEB_TS_CERT_B64, CWEB_TS_KEY_B64» y las dos en `~/.config/dev-secrets.env`.
+   Luego `llavero enviar mini` y `llavero comparar mini` tiene que dar «iguales».
+3. **Que tailscaled lo reutilice en un dev rehecho**: destruir y volver a lanzar el
+   dev desde el mini. Esperado en el log del `install` de `claude-web`:
+   `[cert] certificado del llavero colocado en tailscaled (caduca el …)`, y en el
+   journal de tailscaled **ninguna** línea `acme:` ni `cert(…)` pidiendo nada. La
+   PWA instalada en el móvil abre a la primera. `cert` desde `/use cweb` dice «Es el
+   MISMO que tiene tailscaled».
+4. **Lo que se sabrá sólo a los ~60 días**: tailscaled renueva solo; `cert` dirá
+   entonces «el del nodo es más nuevo → recógelo», y hay que repetir el paso 2.
+
+⚠ Si el paso 3 muestra una línea `acme:` en el journal, la colocación NO valió y
+hay que mirar por qué antes de nada: cada intento es 1 de 5.
+
+
 ## ✅ ACTUALIZADO el 2026-09-10 (noche): el ciclo SÍ ocurrió, y salió medio bien
 
 **Este server es el dev nuevo.** Nació a las 20:00 UTC, o sea que el

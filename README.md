@@ -51,8 +51,10 @@ bot ← Desde el móvil (con Tailscale activo):
 Abres esa dirección en el móvil y la guardas en marcadores. No hay pantalla de
 login: la identidad la pone la red.
 
-⚠ **«Añadir a pantalla de inicio» ya NO sale**, y no es un fallo del móvil: ver
-[§ Por qué ya no hay certificado](#por-qué-ya-no-hay-certificado-2026-09-11).
+⚠ **«Añadir a pantalla de inicio» sólo sale con `https://`**, y eso pide un
+certificado que desde el 2026-09-11 **viaja con la flota** en vez de pedirse en
+cada dev: ver [§ Por qué ya no hay certificado](#por-qué-ya-no-hay-certificado-2026-09-11)
+y, justo debajo, [§ Y cómo se recupera](#y-cómo-se-recupera-el-certificado-viaja-con-la-flota-2026-09-11).
 
 ### Si algo va mal
 
@@ -260,10 +262,54 @@ la caché de su origen `https://`. Sirve de **trampolín**: abre, no alcanza a n
 y desde ahí se escribe la dirección nueva. Es exactamente para lo que se hizo
 (ver [arriba](#y-desde-el-2026-09-10-no-hace-falta-reinstalar-la-app-se-le-cambia-la-dirección)).
 
+#### Y cómo se recupera: el certificado viaja con la flota (2026-09-11)
+
+El límite se quemaba porque el certificado **vivía en el droplet que se destruye**
+(`/var/lib/tailscale/certs/`), así que cada dev pedía uno nuevo. Y no hace falta:
+tailscaled **reutiliza** lo que encuentre ahí. Leído en su código
+([`feature/acme/certstore.go`](https://github.com/tailscale/tailscale/blob/main/feature/acme/certstore.go),
+`certFileStore.Read` → `validCertPEM`): si hay `<dominio>.crt` y `<dominio>.key`,
+valida la cadena contra las raíces del sistema y las de Let's Encrypt embebidas,
+comprueba nombre y caducidad, y si vale lo sirve **sin pedir nada**. Sólo renueva
+en segundo plano pasados 2/3 de la vida (~día 60 de 90), siguiendo sirviendo el
+viejo mientras tanto.
+
+Así que el certificado se pide **una vez** y desde entonces va en el llavero del
+lanzador como dos variables en base64 (`CWEB_TS_CERT_B64` y `CWEB_TS_KEY_B64`, que
+llegan aquí como `TS_CERT_B64` y `TS_KEY_B64` por el puente `env_prefix`). Cada dev
+nuevo lo **coloca** antes de poner el `serve`, y rehacer el dev cuesta 0 emisiones.
+
+| paso | quién | qué |
+|---|---|---|
+| pedir el primero | tú, una vez | `CWEB_TS_ESQUEMA=https` en el `.env` del lanzador, `tailscale` desde `/use cweb`, y abrir la web desde el móvil (o `curl` al FQDN): tailscaled lo pide. Cuenta 1 de los 5 de la semana |
+| guardarlo | tú, una vez, y otra vez cuando tailscaled lo renueve | en la máquina, `python3 scripts/do_droplet.py entornos recoger` (lanzador): lee `cweb cert exportar` y lo mete en el llavero. Luego `llavero enviar <otra>` |
+| colocarlo | solo, en cada dev nuevo | `tailscale-unir.mjs` y `tailscale-serve.mjs` lo ponen en tailscaled **antes** del `serve`, y sólo si vale para el nombre que la tailnet dio |
+| verlo | `cert` desde `/use cweb` | qué tiene tailscaled, qué trae el llavero, si coinciden y cuándo caduca. Nunca imprime el par |
+
+**Y el esquema por defecto lo decide un dato**: sin `CWEB_TS_ESQUEMA`, se publica
+por `https` si el llavero trae certificado y por `http` si no. Nunca se pide un
+certificado a Let's Encrypt sin que alguien lo diga: para el primero hay que
+escribir `CWEB_TS_ESQUEMA=https`. Hay 22 tests en `tests/certificado.test.mjs`.
+
+⚠ La clave privada de ese certificado viaja en el llavero como ya viajan la clave
+SSH de la flota y la authkey. Sólo sirve para suplantar a `dev.<tailnet>.ts.net`,
+que sólo existe dentro de la tailnet. `cert exportar` es la única orden de
+`cweb.mjs` que la imprime, y **el ejecutor de Telegram la rechaza**: el chat no es
+sitio para ella.
+
+⚠ **Lo que NO está visto en vivo el 2026-09-11**: el límite no se abre hasta el
+2026-09-12 a las 20:03 UTC, así que colocar un certificado REAL y ver que
+tailscaled lo reutiliza en un dev rehecho queda para entonces. Está en
+[`docs/pendiente-verificar.md`](docs/pendiente-verificar.md). Lo que sí está
+probado: la decisión del esquema, la validación de nombre y caducidad contra un
+par de prueba, la colocación con un `install` fingido, y que los dos scripts lo
+hacen antes del `serve`.
+
 #### La marcha atrás es un dato, no un parche
 
 ```sh
-CWEB_TS_ESQUEMA=https        # y el puerto vuelve solo al 8443
+CWEB_TS_ESQUEMA=https        # pide un certificado a Let's Encrypt (1 de 5) si no hay
+CWEB_TS_ESQUEMA=http         # publica sin certificado aunque lo haya
 ```
 
 No hay nada de código que tocar: esquema y puerto salen de `publicacion()` en

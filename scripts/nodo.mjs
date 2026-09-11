@@ -38,6 +38,8 @@
 // es efímero. O sea: un resto de una vez, no una configuración mal puesta —
 // se borra una vez y el nombre queda libre para siempre.
 
+import { X509Certificate } from 'node:crypto';
+
 // ---------------------------------------------------------------------------
 // CÓMO se publica la web en la tailnet: esquema y puerto. Es DATO, no código.
 // ---------------------------------------------------------------------------
@@ -92,7 +94,16 @@
  */
 export function publicacion(env = process.env) {
   const pedido = String(env?.CWEB_TS_ESQUEMA ?? '').trim().toLowerCase();
-  const esquema = pedido === 'https' ? 'https' : 'http';
+  // ⚠⚠ SIN `CWEB_TS_ESQUEMA`, EL ESQUEMA LO DECIDE UN DATO: si hay certificado en
+  // el entorno (`TS_CERT_B64`/`TS_KEY_B64`, ver `certificadoDelEntorno()`), se
+  // publica por `https` y no cuesta ninguna emisión; si no lo hay, por `http`.
+  // Nunca se pide un certificado a Let's Encrypt por defecto: cada uno es 1 de
+  // los 5 de la semana, y pedirlo sin querer es justo lo que dejó la app sin
+  // web móvil el 2026-09-11. Para pedir el primero hay que DECIRLO:
+  // `CWEB_TS_ESQUEMA=https`. Y desde entonces viaja con la flota.
+  let esquema;
+  if (pedido === 'https' || pedido === 'http') esquema = pedido;
+  else esquema = certificadoDelEntorno(env) ? 'https' : 'http';
   const puerto = String(env?.CWEB_PUERTO_TS ?? '').trim() || (esquema === 'https' ? '8443' : '8080');
   return { esquema, puerto, bandera: `--${esquema}=${puerto}` };
 }
@@ -504,4 +515,137 @@ export function publicacionSobrante(dnsNodo, serve, pub = publicacion()) {
     if (puerto !== String(pub.puerto) || esq !== pub.esquema) sobran.push(`${clave} (${esq})`);
   }
   return { sobran, sabe: true };
+}
+
+
+// ---------------------------------------------------------------------------
+// EL CERTIFICADO VIAJA CON LA FLOTA, y no se pide uno por cada dev.
+// ---------------------------------------------------------------------------
+//
+// El límite que rompió la app el 2026-09-11 (5 certificados por semana y por
+// nombre exacto, Let's Encrypt) se quema porque cada dev rehecho pide uno NUEVO:
+// el certificado vive en `/var/lib/tailscale/certs/` del droplet que se destruye.
+//
+// Y no hace falta: tailscaled REUTILIZA lo que encuentre ahí. Leído en su código
+// (`feature/acme/certstore.go`, `certFileStore.Read` → `validCertPEM`): si hay
+// `<dominio>.crt` y `<dominio>.key`, valida la cadena contra las raíces del
+// sistema y las de Let's Encrypt que lleva embebidas, comprueba nombre y
+// caducidad, y si vale lo sirve sin llamar a nadie. Sólo renueva —en segundo
+// plano, siguiendo sirviendo el viejo— pasados 2/3 de la vida (~día 60 de 90).
+//
+// O sea que un certificado se pide UNA vez, se guarda en el llavero como dos
+// variables en base64 (`CWEB_TS_CERT_B64` y `CWEB_TS_KEY_B64` en el lanzador, que
+// llegan aquí como `TS_CERT_B64` y `TS_KEY_B64` por el puente `env_prefix`), y
+// cada dev nuevo lo coloca antes de poner el `serve`. Rehacer el dev pasa a
+// costar 0 emisiones. La ida la hace `entornos aplicar` del lanzador; la vuelta
+// —del nodo al llavero, para cuando tailscaled lo renueve— `cweb cert exportar`
+// leído por `entornos recoger`.
+//
+// ⚠ La clave privada de ese certificado viaja en el llavero como ya viajan la
+// clave SSH de la flota y la authkey. Sólo sirve para suplantar a
+// `dev.<tailnet>.ts.net`, que sólo existe dentro de la tailnet.
+
+/** Dónde guarda tailscaled los certificados en Linux (`TailscaleVarRoot()/certs`). */
+export const DIR_CERTIFICADOS = '/var/lib/tailscale/certs';
+
+/** Rutas del par de UN dominio, tal como las lee tailscaled. */
+export function rutasCertificado(dns, dir = DIR_CERTIFICADOS) {
+  const dominio = String(dns ?? '').replace(/\.$/, '');
+  if (!dominio) return null;
+  return { crt: `${dir}/${dominio}.crt`, key: `${dir}/${dominio}.key` };
+}
+
+/**
+ * El par que viene en el entorno, decodificado, o null si no viene entero.
+ *
+ * ⚠ Un par a medias es null, no «lo que haya»: tailscaled exige LOS DOS ficheros y
+ * con uno solo se comporta como si no hubiera ninguno, o sea que pide a Let's
+ * Encrypt. Aquí se decide el esquema con esto, y decidir `https` con medio par es
+ * quemar una emisión por sorpresa.
+ */
+export function certificadoDelEntorno(env = process.env) {
+  const decodifica = (v) => {
+    const b64 = String(v ?? '').trim();
+    if (!b64) return '';
+    try { return Buffer.from(b64, 'base64').toString('utf8'); } catch { return ''; }
+  };
+  const crt = decodifica(env?.TS_CERT_B64);
+  const key = decodifica(env?.TS_KEY_B64);
+  if (!/-----BEGIN CERTIFICATE-----/.test(crt) || !/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(key)) return null;
+  return { crt, key };
+}
+
+/** El par en la forma en que viaja: dos líneas `NOMBRE=base64`, una sola cada uno. */
+export function lineasParaExportar({ crt, key }) {
+  const b64 = (t) => Buffer.from(String(t), 'utf8').toString('base64');
+  return [`TS_CERT_B64=${b64(crt)}`, `TS_KEY_B64=${b64(key)}`];
+}
+
+/**
+ * ¿Sirve este certificado para ESTE nodo, hoy?
+ *
+ * Mira lo mismo que tailscaled antes de usarlo, menos la cadena: el NOMBRE (un
+ * cert de `dev` no vale si la tailnet te dio `dev-1`) y la CADUCIDAD. Se comprueba
+ * aquí porque colocar uno que no vale no falla: tailscaled lo ignora y pide otro a
+ * Let's Encrypt, que es exactamente el gasto que esto existe para evitar.
+ *
+ * @returns {{vale: boolean, motivo: string, caduca: Date|null, dias: number|null}}
+ */
+export function certificadoVale(crtPEM, dns, ahora = new Date()) {
+  let x;
+  try {
+    // Sólo la hoja: la cadena viene detrás en el mismo PEM y X509Certificate se
+    // queda con el primero.
+    x = new X509Certificate(String(crtPEM ?? ''));
+  } catch {
+    return { vale: false, motivo: 'no es un certificado PEM legible', caduca: null, dias: null };
+  }
+  const caduca = new Date(x.validTo);
+  const dias = Math.floor((caduca.getTime() - ahora.getTime()) / 86_400_000);
+  const dominio = String(dns ?? '').replace(/\.$/, '');
+  if (!dominio) return { vale: false, motivo: 'no sé el nombre del nodo', caduca, dias };
+  if (!x.checkHost(dominio)) {
+    return { vale: false, motivo: `es de "${x.subject.replace(/^CN=/, '')}", y este nodo es "${dominio}"`, caduca, dias };
+  }
+  if (caduca.getTime() <= ahora.getTime()) {
+    return { vale: false, motivo: `caducó el ${caduca.toISOString().slice(0, 10)}`, caduca, dias };
+  }
+  return { vale: true, motivo: '', caduca, dias };
+}
+
+/**
+ * Las órdenes que dejan el par en el almacén de tailscaled, a partir de dos
+ * ficheros temporales. Van por `install`: pone modo y dueño en la misma orden,
+ * y crea el directorio si un tailscaled recién instalado aún no lo hizo.
+ *
+ * ⚠ Los ficheros temporales los escribe quien llama y los borra SIEMPRE, como la
+ * authkey en `ordenDeUnir()`: nada del contenido pasa por la línea de órdenes.
+ */
+export function ordenesDePonerCertificado(dns, tmpCrt, tmpKey, dir = DIR_CERTIFICADOS) {
+  const r = rutasCertificado(dns, dir);
+  if (!r) return [];
+  return [
+    `sudo -n install -d -m 0700 -o root -g root ${dir}`,
+    `sudo -n install -m 0644 -o root -g root ${tmpCrt} ${r.crt}`,
+    `sudo -n install -m 0600 -o root -g root ${tmpKey} ${r.key}`,
+  ];
+}
+
+/**
+ * Un `.env` en un objeto. Sin dependencias: `NOMBRE=valor` por línea, `#` como
+ * comentario, comillas simples o dobles alrededor del valor se quitan. Lo que no
+ * tenga esa forma se ignora en silencio: es lo mismo que hace el lanzador.
+ */
+export function leerEnv(texto) {
+  const out = {};
+  for (const cruda of String(texto ?? '').split(/\r?\n/)) {
+    const linea = cruda.trim();
+    if (!linea || linea.startsWith('#') || !linea.includes('=')) continue;
+    const i = linea.indexOf('=');
+    const nombre = linea.slice(0, i).trim();
+    let valor = linea.slice(i + 1).trim();
+    if (valor.length >= 2 && (valor[0] === valor[valor.length - 1]) && (valor[0] === '"' || valor[0] === "'")) valor = valor.slice(1, -1);
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(nombre)) out[nombre] = valor;
+  }
+  return out;
 }

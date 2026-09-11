@@ -33,13 +33,16 @@ import { fileURLToPath } from 'node:url';
 import { avisoDeDeriva, avisoDeServeHuerfano, nombreCorto, ordenDeServir,
          ordenDeUnir, publicacion, publicacionSobrante, serveHuerfano,
          urlPublica } from './nodo.mjs';
+import { conEnvDelRepo, ponerCertificadoSiHay } from './certificado.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
-const PUERTO_WEB = process.env.CWEB_PORT ?? '8020';
-// Esquema y puerto son DATO: `publicacion()` en `nodo.mjs`, donde está medido por
-// qué desde el 2026-09-11 se publica por `http` y sin certificado.
-const PUB = publicacion();
+// ⚠ El entorno MÁS el `.env` del repo, que es donde el lanzador deja `TS_*`.
+const ENV = conEnvDelRepo(RAIZ);
+const NOMBRE = ENV.CWEB_HOSTNAME ?? 'dev';
+const PUERTO_WEB = ENV.CWEB_PORT ?? '8020';
+// Esquema y puerto son DATO: `publicacion()` en `nodo.mjs`. Desde el 2026-09-11:
+// `https` si el llavero trae certificado, `http` si no, salvo `CWEB_TS_ESQUEMA`.
+const PUB = publicacion(ENV);
 const SECO = process.argv.includes('--seco');
 
 /** Avisa por Telegram. ⚠ NUNCA puede tumbar esto: es una comodidad, y este
@@ -60,11 +63,7 @@ const sh = (cmd, env) => {
 
 /** La authkey, del entorno o del `.env` del repo (donde la deja `env_prefix`). */
 function authkey() {
-  if (process.env.TS_AUTHKEY) return process.env.TS_AUTHKEY.trim();
-  const f = join(RAIZ, '.env');
-  if (!existsSync(f)) return '';
-  const m = readFileSync(f, 'utf8').match(/^\s*TS_AUTHKEY\s*=\s*(.+)$/m);
-  return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
+  return String(ENV.TS_AUTHKEY ?? '').trim();
 }
 
 const estado = () => {
@@ -88,6 +87,7 @@ if (SECO) {
     e.dentro && nombreCorto(e.nombre) !== NOMBRE ? `  ⚠ pero se llama "${nombreCorto(e.nombre)}"` : ''}`);
   console.log(`   authkey disponible  : ${clave ? 'sí (no se imprime)' : 'NO'}`);
   console.log(`   serve que pondría   : ${PUB.bandera} → http://127.0.0.1:${PUERTO_WEB}`);
+  console.log(`   certificado         : ${ENV.TS_CERT_B64 && ENV.TS_KEY_B64 ? 'viene en el llavero (no se imprime)' : 'NO viene; con https se pediría a Let\'s Encrypt'}`);
   console.log(`   URL que quedaría    : ${urlPublica(e.nombre ?? `${NOMBRE}.<tailnet>`, PUB)}`);
   process.exit(0);
 }
@@ -138,6 +138,14 @@ const ponerServe = () => sh(ordenDeServir(PUB, PUERTO_WEB));
 const publicado = () => {
   try { return JSON.parse(sh('tailscale serve status --json').out || 'null'); } catch { return null; }
 };
+
+// ⚠⚠ EL CERTIFICADO VA ANTES DEL `serve`, y sólo con `https`: si el llavero trae
+// uno que vale para este nodo, tailscaled lo reutiliza y rehacer el dev no gasta
+// ninguna de las 5 emisiones semanales de Let's Encrypt (medido el 2026-09-11).
+// Se comprueba contra el nombre que la tailnet DIO, no contra el pedido: un cert
+// de `dev` no sirve si el nodo entró como `dev-1`, y colocarlo no fallaría —
+// tailscaled lo ignoraría y pediría otro—, que es justo el gasto silencioso.
+if (PUB.esquema === 'https') console.log(ponerCertificadoSiHay(e.nombre, ENV).mensaje);
 
 let r = ponerServe();
 if (!r.ok) {

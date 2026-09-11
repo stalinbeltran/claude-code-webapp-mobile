@@ -21,11 +21,17 @@
 import { execFileSync, execSync } from 'node:child_process';
 import { ordenDeProbar, ordenDeServir, publicacion, publicacionSobrante,
          serveHuerfano, urlPublica } from './nodo.mjs';
-import { join } from 'node:path';
+import { conEnvDelRepo, ponerCertificadoSiHay } from './certificado.mjs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
-const PUERTO_WEB = process.env.CWEB_PORT ?? '8020';
-const PUB = publicacion();
+const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// ⚠ El entorno MÁS el `.env` del repo: ahí es donde el lanzador deja `TS_*`, y
+// sin leerlo `publicacion()` no vería el certificado y publicaría por `http`.
+const ENV = conEnvDelRepo(RAIZ);
+const PUERTO_WEB = ENV.CWEB_PORT ?? '8020';
+const PUB = publicacion(ENV);
 const COORD = process.env.COORD_HOME || join(homedir(), 'src', 'telegram-coordinator');
 const i = process.argv.indexOf('--esperar');
 const MINUTOS = i >= 0 ? Number(process.argv[i + 1]) : 30;
@@ -102,6 +108,12 @@ if (huerfanos.length || sobran.length) {
   const limpieza = sh('sudo -n tailscale serve reset');
   if (!limpieza.ok) console.error(`[serve] no pude limpiarlos:\n${limpieza.out.slice(-300)}`);
 }
+
+// ⚠⚠ EL CERTIFICADO VA ANTES DEL `serve`, y sólo con `https`. Si el llavero trae
+// uno que vale para este nodo, tailscaled lo encuentra y no pide ninguno a Let's
+// Encrypt (5 por semana y por nombre, medido el 2026-09-11). Si no lo trae, se
+// dice AHORA que va a pedir uno, para que nadie descubra el gasto por el 429.
+if (PUB.esquema === 'https') console.log(ponerCertificadoSiHay(nombre, ENV).mensaje);
 
 // ⚠ `--bg` para que la configuración quede puesta y sobreviva a este proceso:
 // `tailscale serve` sin él se queda en primer plano y al morir deja de servir.

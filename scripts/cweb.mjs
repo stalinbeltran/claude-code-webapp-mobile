@@ -3,7 +3,7 @@
 // y existe por la regla 4 de escritura del coordinador: **un comando nuevo no
 // está terminado hasta que se puede invocar desde el móvil**.
 //
-// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log]
+// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log|tailscale|cert [exportar]]
 //
 // ⚠ Este script NO decide dónde escucha el servidor: eso está en
 // `server/index.mjs` y es 127.0.0.1 siempre. Aquí sólo se enciende y se apaga.
@@ -15,14 +15,18 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { avisoDeDeriva, avisoDeServeHuerfano, esquemaPublicado, publicacion,
          publicacionSobrante, serveHuerfano } from './nodo.mjs';
+import { conEnvDelRepo, estado as estadoCertificado, exportar as exportarCertificado } from './certificado.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
-const PUERTO = process.env.CWEB_PORT ?? '8020';
-const PUB = publicacion();
+// ⚠ El entorno MÁS el `.env` del repo (donde el lanzador deja `TS_*`): sin
+// leerlo, `publicacion()` no vería el certificado y diría `http`.
+const ENV = conEnvDelRepo(RAIZ);
+const PUERTO = ENV.CWEB_PORT ?? '8020';
+const PUB = publicacion(ENV);
 /** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
  *  porque es el que quedó escrito en la PWA instalada en el móvil. */
-const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
+const NOMBRE = ENV.CWEB_HOSTNAME ?? 'dev';
 
 /** El esquema de una clave `host:puerto` del `serve status`, o null si no se sabe. */
 const esquemaDe = (serve, clave) =>
@@ -212,9 +216,38 @@ switch (orden) {
     console.log(r || '(sin salida)');
     break;
   }
+  case 'cert': {
+    // El certificado con el que se publica por https: qué tiene tailscaled, qué
+    // trae el llavero y si coinciden. Existe porque el fallo del 2026-09-11 era
+    // INVISIBLE desde aquí: nodo bien, serve bien, unidad activa, y el móvil
+    // colgado en un handshake TLS contra un 429 de Let's Encrypt.
+    //
+    // `cert exportar` imprime el par en las dos líneas que van al llavero. Es la
+    // ÚNICA orden de este script que saca un secreto por stdout, y es para que la
+    // lea `entornos recoger` del lanzador, no una persona: el ejecutor de Telegram
+    // la rechaza a propósito (ver telegram/executors/cweb.json).
+    const que = (process.argv[3] || '').trim().toLowerCase();
+    const dns = nombreDelNodo();
+    if (que === 'exportar') {
+      const lineas = dns ? exportarCertificado(dns) : null;
+      if (!lineas) {
+        console.error(dns
+          ? `no hay certificado en tailscaled para ${dns}: nada que exportar`
+          : 'el nodo no está en la tailnet: no sé de qué nombre sería el certificado');
+        process.exit(1);
+      }
+      console.log(lineas.join('\n'));
+      break;
+    }
+    if (que) { console.log(`No sé qué es "cert ${que}". Órdenes: cert · cert exportar`); process.exit(2); }
+    console.log(`publicación   : ${PUB.bandera}` +
+      (String(ENV.CWEB_TS_ESQUEMA ?? '').trim() ? ' (por CWEB_TS_ESQUEMA)' : ' (por defecto: https sólo si el llavero trae certificado)'));
+    console.log(estadoCertificado(dns, ENV));
+    break;
+  }
   default:
     // ⚠ El último caso SE NIEGA, nunca es una acción por defecto: así es como se
     // acaba corriendo lo que nadie pidió (medido el 2026-09-08 en otro lanzador).
-    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · tailscale`);
+    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · tailscale · cert`);
     process.exit(2);
 }
