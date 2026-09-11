@@ -16,8 +16,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { nombreCorto, hayDeriva, avisoDeDeriva, ordenDeUnir, nodosAReclamar,
-         ordenDeDesunir, serveHuerfano, avisoDeServeHuerfano,
-         ordenDeProbar } from '../scripts/nodo.mjs';
+         ordenDeDesunir, serveHuerfano, avisoDeServeHuerfano, ordenDeProbar,
+         publicacion, ordenDeServir, urlPublica, esquemaPublicado,
+         publicacionSobrante } from '../scripts/nodo.mjs';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -48,10 +49,10 @@ test('⚠ sin saber el nombre NO se afirma que haya deriva', () => {
 });
 
 test('el aviso trae las TRES cosas que hacen falta para salir del atasco', () => {
-  const a = avisoDeDeriva('dev', 'dev-1.ejemplo.ts.net.', '8443');
+  const a = avisoDeDeriva('dev', 'dev-1.ejemplo.ts.net.', publicacion({}));
   assert.match(a, /dev-1/, 'tiene que decir cómo se llama de verdad');
   // 1. la URL que funciona AHORA, para no quedarse tirado
-  assert.match(a, /https:\/\/dev-1\.ejemplo\.ts\.net:8443\//);
+  assert.match(a, /http:\/\/dev-1\.ejemplo\.ts\.net:8080\//);
   // 2. cómo recuperar el nombre estable
   assert.match(a, /login\.tailscale\.com\/admin\/machines/);
   // 3. la causa de fondo, o vuelve a pasar en el siguiente dev
@@ -61,10 +62,15 @@ test('el aviso trae las TRES cosas que hacen falta para salir del atasco', () =>
   assert.match(a, /Failed to fetch/);
 });
 
-test('el puerto del aviso no se supone: se pasa', () => {
-  // Aquí el 443 lo tiene `sshd`, así que el serve va en el 8443. Un aviso con la
-  // URL sin puerto «parecería correcta y no cargaría», que ya costó una vuelta.
-  assert.match(avisoDeDeriva('dev', 'dev-9.x.ts.net', '9999'), /dev-9\.x\.ts\.net:9999\//);
+test('el puerto y el esquema del aviso no se suponen: se pasan', () => {
+  // Aquí el 443 lo tiene `sshd`, así que el serve va en otro puerto. Un aviso con
+  // la URL sin puerto «parecería correcta y no cargaría», que ya costó una vuelta
+  // — y desde el 2026-09-11 el esquema puede ser cualquiera de los dos, así que
+  // suponerlo cuesta lo mismo.
+  assert.match(avisoDeDeriva('dev', 'dev-9.x.ts.net', publicacion({ CWEB_PUERTO_TS: '9999' })),
+    /http:\/\/dev-9\.x\.ts\.net:9999\//);
+  assert.match(avisoDeDeriva('dev', 'dev-9.x.ts.net', publicacion({ CWEB_TS_ESQUEMA: 'https' })),
+    /https:\/\/dev-9\.x\.ts\.net:8443\//);
 });
 
 test('⚠⚠ el script de unir COMPRUEBA el nombre antes de dar el ✅', () => {
@@ -301,10 +307,10 @@ test('sin huérfanos no se dice nada: un aviso que sale siempre se deja de leer'
 
 test('el aviso trae el comando que lo arregla, y el `reset` va ANTES', () => {
   const a = avisoDeServeHuerfano('dev.ejemplo.ts.net.',
-    { Web: { 'dev-2.ejemplo.ts.net:8443': {} } }, '8443', '8020');
+    { Web: { 'dev-2.ejemplo.ts.net:8443': {} } }, publicacion({}), '8020');
   assert.match(a, /dev-2\.ejemplo\.ts\.net:8443/, 'dice cuál sobra');
   assert.match(a, /tailscale serve reset/, 'y cómo quitarlo');
-  assert.match(a, /serve --bg --https=8443 http:\/\/127\.0\.0\.1:8020/, 'y cómo reponerlo');
+  assert.match(a, /serve --bg --http=8080 http:\/\/127\.0\.0\.1:8020/, 'y cómo reponerlo');
   assert.ok(a.indexOf('serve reset') < a.indexOf('--bg'),
     '⚠ el orden importa: `--bg` AÑADE el host nuevo y no borra el viejo, así que ' +
     'sin el reset delante quedan los dos publicados');
@@ -320,12 +326,12 @@ test('⚠ la comprobación resuelve a mano: esta máquina NO resuelve su MagicDN
   //   con --resolve -> "200"
   // O sea que el paso que confirma que la web se ve decía que NO se veía,
   // siempre. Peor que no comprobar.
-  const o = ordenDeProbar('dev.ejemplo.ts.net.', '100.64.0.1', '8443');
-  assert.match(o, /--resolve dev\.ejemplo\.ts\.net:8443:100\.64\.0\.1/);
-  assert.match(o, /https:\/\/dev\.ejemplo\.ts\.net:8443\/api\/salud/);
+  const o = ordenDeProbar('dev.ejemplo.ts.net.', '100.64.0.1', publicacion({}));
+  assert.match(o, /--resolve dev\.ejemplo\.ts\.net:8080:100\.64\.0\.1/);
+  assert.match(o, /http:\/\/dev\.ejemplo\.ts\.net:8080\/api\/salud/);
 });
 
-test('⚠ se prueba por el FQDN y con el certificado de verdad', () => {
+test('⚠ se prueba por el FQDN, y nunca saltándose el certificado', () => {
   const o = ordenDeProbar('dev.ejemplo.ts.net', '100.64.0.1');
   assert.ok(!/127\.0\.0\.1/.test(o),
     'por loopback se probaría la app, que ya se sabe viva; lo que falla es el tramo de tailscale');
@@ -335,4 +341,129 @@ test('⚠ se prueba por el FQDN y con el certificado de verdad', () => {
 
 test('sin nombre de nodo no hay nada que probar', () => {
   assert.equal(ordenDeProbar(null, '100.64.0.1'), null);
+});
+
+// ---------------------------------------------------------------------------
+// CÓMO se publica: esquema y puerto, que desde el 2026-09-11 son DATO.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ El fallo que esto evita ya ocurrió, y no en el código sino en la factura de
+// certificados: Let's Encrypt da 5 por semana y por nombre exacto, y este nombre
+// se reutiliza en CADA dev a propósito (para que la PWA instalada siga
+// resolviendo). El sexto dev de la semana nacía sin web móvil, y el síntoma era
+// «la app tarda muchísimo» — el móvil colgado en un handshake TLS que nunca
+// termina. Medido en esta máquina el 2026-09-11: 27 handshakes así en dos horas,
+// con la app contestando 200 en 8 ms por loopback todo el rato.
+
+test('por defecto se publica por http y sin certificado', () => {
+  const p = publicacion({});
+  assert.equal(p.esquema, 'http');
+  assert.equal(p.puerto, '8080');
+  assert.equal(p.bandera, '--http=8080');
+});
+
+test('⚠ se puede volver a https sin tocar código, y el puerto le sigue', () => {
+  // La marcha atrás tiene que ser un dato: si algún día el certificado sobrevive
+  // al rehacer la máquina, o simplemente se ha soltado el límite semanal.
+  const p = publicacion({ CWEB_TS_ESQUEMA: 'https' });
+  assert.equal(p.esquema, 'https');
+  assert.equal(p.puerto, '8443', 'el puerto por defecto va con el esquema, no aparte');
+  assert.equal(p.bandera, '--https=8443');
+});
+
+test('un `CWEB_PUERTO_TS` explícito manda sobre el defecto de cada esquema', () => {
+  assert.equal(publicacion({ CWEB_PUERTO_TS: '9999' }).puerto, '9999');
+  assert.equal(publicacion({ CWEB_TS_ESQUEMA: 'https', CWEB_PUERTO_TS: '9999' }).bandera,
+    '--https=9999');
+});
+
+test('⚠ un esquema que no se entiende cae a http, NO se pasa tal cual', () => {
+  // Pasarlo tal cual compondría `--ftp=8080` y `serve` fallaría con un error que
+  // no se parece a «has escrito mal una variable». Y ninguno de los dos valores
+  // puede colarse vacío: el 443 lo tiene sshd y publicar ahí chocaría.
+  for (const raro of ['ftp', 'HTTPS ', '', '   ', 'sí']) {
+    const p = publicacion({ CWEB_TS_ESQUEMA: raro });
+    assert.ok(p.esquema === 'http' || p.esquema === 'https', `«${raro}» dio ${p.esquema}`);
+    assert.match(p.bandera, /^--https?=\d+$/);
+    assert.notEqual(p.puerto, '443', 'ahí escucha sshd en 0.0.0.0');
+  }
+  assert.equal(publicacion({ CWEB_TS_ESQUEMA: 'HTTPS' }).esquema, 'https',
+    'las mayúsculas son de tecleo, no una elección distinta');
+});
+
+test('la orden de servir y la URL salen del MISMO sitio', () => {
+  const p = publicacion({});
+  assert.equal(ordenDeServir(p, '8020'),
+    'sudo -n tailscale serve --bg --http=8080 http://127.0.0.1:8020');
+  assert.equal(urlPublica('dev.ejemplo.ts.net.', p), 'http://dev.ejemplo.ts.net:8080/');
+  assert.equal(urlPublica('dev.ejemplo.ts.net', publicacion({ CWEB_TS_ESQUEMA: 'https' })),
+    'https://dev.ejemplo.ts.net:8443/');
+});
+
+test('⚠⚠ ningún script compone la orden del serve por su cuenta', () => {
+  // R17: la comprobación corre sola. Si mañana alguien vuelve a escribir
+  // `serve --bg --https=…` a mano en un script, el esquema deja de ser un dato y
+  // `CWEB_TS_ESQUEMA` miente en silencio — que es peor que no tenerlo.
+  //
+  // ⚠ Se miran las líneas de CÓDIGO, no los comentarios: estos ficheros explican
+  // el fallo del 2026-09-10 citando `serve --bg` literalmente, y un guardián que
+  // salta con la explicación del fallo obliga a borrar la explicación.
+  const soloCodigo = (src) => src.split('\n')
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join('\n');
+
+  for (const rel of ['scripts/tailscale-unir.mjs', 'scripts/tailscale-serve.mjs']) {
+    const src = soloCodigo(readFileSync(join(RAIZ, rel), 'utf8'));
+    assert.match(src, /ordenDeServir\(/, `${rel} tiene que componerla con ordenDeServir()`);
+    assert.ok(!/serve --bg/.test(src),
+      `${rel} compone la orden a mano: el esquema dejaría de ser un dato`);
+  }
+  // Y `cweb url` tampoco puede dar el esquema por hecho: una URL con el esquema
+  // equivocado «parece correcta y no carga», que es el fallo del puerto 443 otra vez.
+  const cweb = soloCodigo(readFileSync(join(RAIZ, 'scripts/cweb.mjs'), 'utf8'));
+  assert.ok(!/`https:\/\/\$\{/.test(cweb), 'cweb.mjs supone https al componer la URL');
+});
+
+// ------------------------------------- la TERCERA deriva: esquema/puerto
+
+test('el esquema de un puerto se LEE del serve, no se deduce del número', () => {
+  // El propio `serve status --json` lo trae. Comprobado en esta máquina el
+  // 2026-09-11 con las dos puertas vivas a la vez.
+  const serve = { TCP: { 8443: { HTTPS: true }, 8080: { HTTP: true } } };
+  assert.equal(esquemaPublicado(serve, '8443'), 'https');
+  assert.equal(esquemaPublicado(serve, 8080), 'http');
+  assert.equal(esquemaPublicado(serve, '9999'), null, 'lo que no está no se inventa');
+  assert.equal(esquemaPublicado(null, '8080'), null);
+});
+
+test('⚠⚠ la puerta https que sobra al pasar a http SE DETECTA', () => {
+  // `serve --bg` AÑADE y no reemplaza, así que cambiar de bandera deja las dos
+  // publicadas. `serveHuerfano` no la ve porque el host ES el de este nodo — y es
+  // justo la que cuelga al móvil pidiendo un certificado que no va a llegar.
+  const serve = {
+    TCP: { 8443: { HTTPS: true }, 8080: { HTTP: true } },
+    Web: { 'dev.ejemplo.ts.net:8443': {}, 'dev.ejemplo.ts.net:8080': {} },
+  };
+  assert.deepEqual(serveHuerfano('dev.ejemplo.ts.net.', serve).huerfanos, [],
+    'el host es el bueno: la deriva de NOMBRE no puede verla');
+
+  const { sobran, sabe } = publicacionSobrante('dev.ejemplo.ts.net.', serve, publicacion({}));
+  assert.equal(sabe, true);
+  assert.deepEqual(sobran, ['dev.ejemplo.ts.net:8443 (https)']);
+});
+
+test('cuando lo publicado ES lo declarado, no sobra nada', () => {
+  const serve = { TCP: { 8080: { HTTP: true } }, Web: { 'dev.ejemplo.ts.net:8080': {} } };
+  assert.deepEqual(publicacionSobrante('dev.ejemplo.ts.net.', serve, publicacion({})).sobran, []);
+});
+
+test('⚠ sin poder comparar NO se afirma que sobre nada: quien llama a esto RESETEA', () => {
+  // Mismo criterio que `serveHuerfano` y que el `NO SÉ` del freno del
+  // coordinador, y aquí importa el doble: resetear por no saber se lleva por
+  // delante un serve puesto a mano.
+  assert.equal(publicacionSobrante(null, { Web: { 'x:8443': {} } }, publicacion({})).sabe, false);
+  assert.deepEqual(publicacionSobrante(null, { Web: { 'x:8443': {} } }, publicacion({})).sobran, []);
+  // Publicado sin `TCP` legible: el puerto está, el esquema no se sabe -> no sobra.
+  const sinTcp = { Web: { 'dev.ejemplo.ts.net:8443': {} } };
+  assert.deepEqual(publicacionSobrante('dev.ejemplo.ts.net.', sinTcp, publicacion({})).sobran, []);
 });

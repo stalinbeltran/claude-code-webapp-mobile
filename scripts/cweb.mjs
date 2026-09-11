@@ -13,15 +13,20 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { avisoDeDeriva, avisoDeServeHuerfano, serveHuerfano } from './nodo.mjs';
+import { avisoDeDeriva, avisoDeServeHuerfano, esquemaPublicado, publicacion,
+         publicacionSobrante, serveHuerfano } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
 const PUERTO = process.env.CWEB_PORT ?? '8020';
-const PUERTO_TS = process.env.CWEB_PUERTO_TS ?? '8443';
+const PUB = publicacion();
 /** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
  *  porque es el que quedó escrito en la PWA instalada en el móvil. */
 const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
+
+/** El esquema de una clave `host:puerto` del `serve status`, o null si no se sabe. */
+const esquemaDe = (serve, clave) =>
+  esquemaPublicado(serve, (String(clave).match(/:(\d+)$/) || [])[1] || '');
 
 /** El `data/` del coordinador: de dónde sale el log que esta web lee.
  *  Se DECLARA con `CWEB_DATA_DIR`; el defecto es el sitio de siempre, y si no
@@ -135,15 +140,21 @@ function url() {
   try { serve = JSON.parse(sh('tailscale serve status --json 2>/dev/null')); } catch { /* abajo se degrada */ }
   const { propios, huerfanos, sabe } = serveHuerfano(dnsNodo, serve);
 
+  // ⚠⚠ Y EL ESQUEMA TAMPOCO SE SUPONE, desde el 2026-09-11. Esto ponía `https://`
+  // a pelo, que era verdad mientras sólo hubiera una forma de publicar; desde que
+  // se publica por `http` (ver `publicacion()` en `nodo.mjs`) una URL con el
+  // esquema equivocado **parece correcta y no carga** — exactamente el fallo del
+  // puerto 443 que esta misma función existe para no repetir. Se lee del `TCP` que
+  // el propio `serve status --json` trae.
   const publicada = sabe && propios.length
-    ? `https://${propios[0]}`                                  // el del nodo, comprobado
-    : (s.match(/https:\/\/\S+/) || [])[0];                     // sin poder comparar, lo de siempre
+    ? `${esquemaDe(serve, propios[0]) ?? PUB.esquema}://${propios[0]}`   // el del nodo, comprobado
+    : (s.match(/https?:\/\/\S+/) || [])[0];                             // sin poder comparar, lo que diga el status
 
   // ⚠ Si TODO lo publicado es huérfano, no hay URL buena que dar. Devolver la
   // muerta «porque es lo que dice el status» es exactamente el fallo que costó
   // la app entera: el comando que existe para no suponer acabó mintiendo con
   // total confianza. Aquí se dice qué pasa y el comando que lo arregla.
-  const huerfano = avisoDeServeHuerfano(dnsNodo, serve, PUERTO_TS, PUERTO);
+  const huerfano = avisoDeServeHuerfano(dnsNodo, serve, PUB, PUERTO);
   if (sabe && huerfanos.length && !propios.length) return huerfano;
 
   if (publicada) {
@@ -151,10 +162,21 @@ function url() {
     // se hace justo cuando la app «no funciona» desde el móvil, así que es donde
     // tiene que estar la respuesta: una URL correcta a secas no explica por qué
     // la que tienes guardada dejó de servir (medido el 2026-09-10).
-    const deriva = avisoDeDeriva(NOMBRE, dnsNodo, PUERTO_TS);
+    const deriva = avisoDeDeriva(NOMBRE, dnsNodo, PUB);
+    // ⚠ Y si además sobra una puerta publicada (la `--https` que queda viva al
+    // pasar a `--http`), se dice: es la que cuelga al móvil pidiendo un certificado
+    // que no va a llegar, y desde aquí es invisible porque el host es el correcto.
+    const { sobran } = publicacionSobrante(dnsNodo, serve, PUB);
+    const sobra = sobran.length
+      ? `⚠ Además sobra publicado: ${sobran.join(', ')}, y lo declarado es ` +
+        `${PUB.bandera}. Esa puerta de más es la que deja al móvil esperando un ` +
+        `certificado. Se quita con:\n  sudo -n tailscale serve reset\n` +
+        `  node scripts/tailscale-serve.mjs`
+      : '';
     return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/` +
       (deriva ? `\n\n${deriva}` : '') +
-      (huerfano ? `\n\n${huerfano}` : '');
+      (huerfano ? `\n\n${huerfano}` : '') +
+      (sobra ? `\n\n${sobra}` : '');
   }
   const nodo = sh('tailscale status --json 2>/dev/null');
   const dentro = nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo);

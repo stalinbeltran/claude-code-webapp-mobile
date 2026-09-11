@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { CLAVE, ESCAPE, normalizarDireccion, decidirArranque,
+import { CLAVE, ESCAPE, normalizarDireccion, decidirArranque, sePuedeProbar,
          leerGuardada, guardarDireccion, olvidarDireccion } from '../web/direccion.js';
 
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -25,28 +25,72 @@ const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 // ------------------------------------------------------- normalizar
 
 test('lo que se teclea en un móvil vale: sin esquema, con ruta y con mayúsculas', () => {
-  // Nadie escribe `https://` a mano en un teléfono.
-  assert.equal(normalizarDireccion('dev.tured.ts.net:8443').origen, 'https://dev.tured.ts.net:8443');
-  assert.equal(normalizarDireccion('https://dev.tured.ts.net:8443/').origen, 'https://dev.tured.ts.net:8443');
-  assert.equal(normalizarDireccion('  DEV.tured.ts.net:8443  ').origen, 'https://dev.tured.ts.net:8443');
+  // Nadie escribe el esquema a mano en un teléfono. Sin él se supone `http`,
+  // que es como se publica desde el 2026-09-11 (ver `publicacion()` en nodo.mjs).
+  assert.equal(normalizarDireccion('dev.tured.ts.net:8080').origen, 'http://dev.tured.ts.net:8080');
+  assert.equal(normalizarDireccion('http://dev.tured.ts.net:8080/').origen, 'http://dev.tured.ts.net:8080');
+  assert.equal(normalizarDireccion('  DEV.tured.ts.net:8080  ').origen, 'http://dev.tured.ts.net:8080');
 });
 
 test('⚠ se guarda SÓLO el origen, nunca la ruta', () => {
   // Pegar la URL con `/api/salud` o con el `?aqui` del escape es lo normal al
   // copiar de un mensaje. Guardar la ruta haría que el salto acabara en un
   // sitio que no es la app — o, con el escape pegado, que no volviera a saltar.
-  assert.equal(normalizarDireccion('dev.tured.ts.net:8443/api/salud').origen,
-    'https://dev.tured.ts.net:8443');
-  assert.equal(normalizarDireccion(`https://dev.tured.ts.net:8443/?${ESCAPE}=1`).origen,
+  assert.equal(normalizarDireccion('dev.tured.ts.net:8080/api/salud').origen,
+    'http://dev.tured.ts.net:8080');
+  assert.equal(normalizarDireccion(`http://dev.tured.ts.net:8080/?${ESCAPE}=1`).origen,
+    'http://dev.tured.ts.net:8080');
+});
+
+test('⚠⚠ `http://` de la tailnet SE ACEPTA: es la única dirección que existe', () => {
+  // Medido el 2026-09-11 desde el móvil: con la regla anterior («sólo https,
+  // salvo loopback») pegar la dirección buena daba «tiene que empezar por
+  // https://». La salida de emergencia rechazaba la salida. Ver el porqué en
+  // `normalizarDireccion`.
+  assert.equal(normalizarDireccion('http://dev.tured.ts.net:8080').origen,
+    'http://dev.tured.ts.net:8080');
+  assert.equal(normalizarDireccion('http://localhost:8020').origen, 'http://localhost:8020');
+  assert.equal(normalizarDireccion('http://127.0.0.1:8020').origen, 'http://127.0.0.1:8020');
+});
+
+test('⚠ `https://` SIGUE valiendo: una dirección guardada no puede caducar por esto', () => {
+  // `CWEB_TS_ESQUEMA=https` vuelve a publicar con certificado sin tocar código,
+  // y el móvil puede tener guardada una URL de la época del certificado.
+  assert.equal(normalizarDireccion('https://dev.tured.ts.net:8443').origen,
     'https://dev.tured.ts.net:8443');
 });
 
-test('⚠ sólo https, salvo loopback', () => {
-  // Se entra por `tailscale serve`, que ES https. Un http:// aquí es un error
-  // de tecleo o alguien mandándote a otro sitio.
-  assert.equal(normalizarDireccion('http://ejemplo.com').ok, false);
-  assert.equal(normalizarDireccion('http://localhost:8020').origen, 'http://localhost:8020');
-  assert.equal(normalizarDireccion('http://127.0.0.1:8020').origen, 'http://127.0.0.1:8020');
+test('⚠ y NADA que no sea http o https', () => {
+  // El salto es un `location.replace`: un esquema cualquiera ahí no es «otra
+  // dirección», es otra cosa.
+  for (const malo of ['ftp://ejemplo.com', 'file:///etc/passwd', 'data://x']) {
+    const r = normalizarDireccion(malo);
+    assert.equal(r.ok, false, `«${malo}» no debería pasar`);
+    assert.match(r.motivo, /http:\/\/ o https:\/\//, 'y el motivo dice qué SÍ vale');
+  }
+});
+
+// ------------------------------------------------- ¿se puede comprobar?
+
+test('⚠⚠ de https a http NO se puede comprobar, y no se dice que no responda', () => {
+  // El caso del 2026-09-11: el trampolín es la PWA instalada, que vive en el
+  // origen https de cuando había certificado. El navegador bloquea ese fetch por
+  // contenido mixto, así que `contesta()` devuelve false SIN preguntar nada — y
+  // el mensaje de «no he conseguido alcanzar» manda a mirar Tailscale, que está
+  // bien. No poder comprobar no es haber comprobado que no.
+  const r = sePuedeProbar('https://dev.tured.ts.net:8443', 'http://dev.tured.ts.net:8080');
+  assert.equal(r.puede, false);
+  assert.match(r.motivo, /contenido mixto/, 'dice POR QUÉ no se puede');
+  assert.match(r.motivo, /Ir de todos modos/, 'y cómo seguir igual');
+  assert.ok(!/no responde|no está|apagad/i.test(r.motivo),
+    '⚠ no puede afirmar nada sobre el destino: no se ha preguntado');
+});
+
+test('los demás casos SÍ se comprueban', () => {
+  // Sólo el descenso de https a http está bloqueado. Subir, o quedarse igual, no.
+  assert.equal(sePuedeProbar('http://dev:8080', 'http://otro:8080').puede, true);
+  assert.equal(sePuedeProbar('http://dev:8080', 'https://otro:8443').puede, true);
+  assert.equal(sePuedeProbar('https://dev:8443', 'https://otro:8443').puede, true);
 });
 
 test('lo que no es una dirección se RECHAZA con un motivo legible', () => {

@@ -38,10 +38,22 @@ export const ESCAPE = 'aqui';
  * `?aqui` del escape o un `/api/...` pegado de un mensaje, y el salto acabaría
  * en un sitio que no es la app.
  *
- * ⚠ Sólo `https:`, salvo loopback. No es purismo: el resto de este proyecto
- * asume que se entra por `tailscale serve`, que **es** HTTPS, y un `http://`
- * aquí sería o un error de tecleo o alguien mandándote a otro sitio. `localhost`
- * se deja pasar porque es como se prueba la app a mano.
+ * ⚠⚠ EL ESQUEMA POR DEFECTO ES `http:` DESDE EL 2026-09-11. Antes era `https:`,
+ * y `http:` se RECHAZABA salvo en loopback. Lo que cambió no es el criterio sino
+ * el hecho sobre el que se apoyaba: la web ya no se publica con certificado (ver
+ * README § «Por qué ya no hay certificado»), así que `http://` no es «un error de
+ * tecleo o alguien mandándote a otro sitio» — es **la única dirección que
+ * existe**.
+ *
+ * Medido el 2026-09-11 desde el móvil, con el nodo bien nombrado, el serve puesto
+ * y la app contestando 200: pegar la dirección buena daba «La dirección tiene que
+ * empezar por https://». O sea que LA SALIDA DE EMERGENCIA RECHAZABA LA SALIDA —
+ * el mismo patrón que el `--resolve` que no podía dar 200 jamás (ver
+ * `ordenDeProbar` en `scripts/nodo.mjs`): un freno que sólo puede decir que no.
+ *
+ * ⚠ `https:` SIGUE VALIENDO escrito entero, y tiene que seguir: `CWEB_TS_ESQUEMA=https`
+ * vuelve a publicar con certificado sin tocar código, y una dirección guardada de
+ * la época del certificado no puede dejar de ser válida por este cambio.
  *
  * @returns {{ok: true, origen: string} | {ok: false, motivo: string}}
  */
@@ -49,20 +61,50 @@ export function normalizarDireccion(texto) {
   const crudo = String(texto ?? '').trim();
   if (!crudo) return { ok: false, motivo: 'No has escrito ninguna dirección.' };
 
-  // Sin esquema se supone https, que es lo único que sirve por la tailnet.
-  const conEsquema = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(crudo) ? crudo : `https://${crudo}`;
+  // Sin esquema se supone http, que es como se publica hoy por la tailnet.
+  const conEsquema = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(crudo) ? crudo : `http://${crudo}`;
 
   let u;
   try { u = new URL(conEsquema); }
   catch { return { ok: false, motivo: `No entiendo «${crudo}» como una dirección.` }; }
 
-  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) {
-    return { ok: false, motivo: `La dirección tiene que empezar por https:// (esa es ${u.protocol}//).` };
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    return { ok: false, motivo: `La dirección tiene que ser http:// o https:// (esa es ${u.protocol}//).` };
   }
   if (!u.hostname) return { ok: false, motivo: 'Esa dirección no tiene servidor.' };
 
   return { ok: true, origen: u.origin };
+}
+
+
+/**
+ * ¿Se puede COMPROBAR esa dirección desde esta página, antes de saltar?
+ *
+ * ⚠⚠ NO SIEMPRE, y el caso que importa es el del 2026-09-11. El trampolín es la
+ * PWA instalada, que vive en el origen `https://` de cuando había certificado, y
+ * la dirección nueva es `http://`. El navegador **bloquea ese `fetch` por
+ * contenido mixto**: la petición ni sale a la red. O sea que `contesta()`
+ * devuelve `false` **sin haber preguntado nada**, y el aviso de «no he conseguido
+ * alcanzar …» manda a revisar Tailscale y la dirección, que están las dos bien.
+ *
+ * Es el `NO SÉ` del freno del coordinador, aquí: **no poder comprobar no es haber
+ * comprobado que no**, y confundirlos manda a arreglar lo que no está roto.
+ *
+ * ⚠ El salto en sí SÍ funciona, y por eso esto avisa en vez de bloquear: bajar de
+ * https a http está prohibido para una SUBPETICIÓN, no para una navegación de
+ * primer nivel, que es lo que hace `location.replace`.
+ *
+ * @returns {{puede: boolean, motivo: string}}
+ */
+export function sePuedeProbar(origenActual, destino) {
+  const https = (o) => /^https:\/\//i.test(String(o ?? ''));
+  if (https(origenActual) && !https(destino)) {
+    return { puede: false, motivo:
+      'No puedo comprobarla desde aquí: esta página es https y esa dirección es http, ' +
+      'así que el navegador bloquea la comprobación (contenido mixto) antes de que salga. ' +
+      'No significa que no responda. El salto sí funciona: dale a «Ir de todos modos».' };
+  }
+  return { puede: true, motivo: '' };
 }
 
 /**

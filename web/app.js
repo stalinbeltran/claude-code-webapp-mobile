@@ -12,7 +12,7 @@ import { crearRenderer } from './markdown.js';
 import { PLANTILLA } from './plantilla.js';
 import { SinRed, explicarFallo } from './diagnostico.js';
 import { ESCAPE, decidirArranque, leerGuardada, guardarDireccion,
-         olvidarDireccion, normalizarDireccion } from './direccion.js';
+         olvidarDireccion, normalizarDireccion, sePuedeProbar } from './direccion.js';
 
 // ⚠⚠ EL SALTO VA ANTES DE MONTAR NADA, y a propósito: si esta app se abrió desde
 // un origen que ya no sirve (la PWA instalada guarda un `start_url` fijo), lo
@@ -237,6 +237,16 @@ createApp({
       }
 
       if (!forzar) {
+        // ⚠ Antes de probar, hay que poder probar. Bajar de https a http bloquea
+        // el `fetch` por contenido mixto, y entonces «no contesta» sería una
+        // afirmación que nadie ha comprobado. Ver `sePuedeProbar` en
+        // `direccion.js`, que es donde está el porqué y lo que tiene el test.
+        const p = sePuedeProbar(location.origin, r.origen);
+        if (!p.puede) {
+          errorDireccion.value = p.motivo;
+          puedeForzar.value = true;
+          return;
+        }
         probando.value = true;
         const vale = await contesta(r.origen);
         probando.value = false;

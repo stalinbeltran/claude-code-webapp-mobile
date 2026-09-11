@@ -38,6 +38,67 @@
 // es efímero. O sea: un resto de una vez, no una configuración mal puesta —
 // se borra una vez y el nombre queda libre para siempre.
 
+// ---------------------------------------------------------------------------
+// CÓMO se publica la web en la tailnet: esquema y puerto. Es DATO, no código.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ DESDE EL 2026-09-11 SE PUBLICA POR `http`, SIN CERTIFICADO. El motivo está
+// medido y no es una preferencia:
+//
+//   429 rateLimited: too many certificates (5) already issued for this exact
+//   set of identifiers in the last 168h0m0s
+//
+// Let's Encrypt da **5 certificados por semana y por nombre exacto**, y aquí el
+// nombre exacto es SIEMPRE el mismo a propósito: `pre_destroy` da de baja el nodo
+// para que el dev siguiente recupere `dev` y la PWA instalada no se quede
+// apuntando a un sitio muerto. O sea que **el mecanismo que protege la URL es el
+// que quema el límite**, y el sexto dev de la semana nace sin web móvil: el móvil
+// se queda colgado en el handshake TLS hasta que se rinde, que desde fuera se ve
+// como «la app tarda muchísimo» y no como «falta un certificado».
+//
+// Medido en esta máquina el 2026-09-11: nacida a las 21:54 UTC, `certs/` sólo con
+// la clave de la cuenta ACME, y **27 handshakes fallidos** del móvil contra ese
+// 429 en dos horas. La app contestaba 200 en 8 ms por loopback todo el rato.
+//
+// ⚠ Dentro de la tailnet el tráfico ya va cifrado por WireGuard, y tailscaled
+// escucha SÓLO en la IP de la tailnet (comprobado: `100.x:8080`, nunca en la
+// interfaz pública), así que quitar TLS aquí no expone nada nuevo. Lo que sí
+// cuesta está escrito donde se nota: README § «Lo que cuesta no tener certificado».
+//
+// ⚠ Y se deja volver: `CWEB_TS_ESQUEMA=https` reactiva el certificado sin tocar
+// código, para cuando el límite se haya soltado o si algún día el cert sobrevive
+// al rehacer la máquina. Por eso esto es un dato y no una constante.
+
+/**
+ * Esquema y puerto con los que este nodo publica la web.
+ *
+ * ⚠ El puerto por defecto DEPENDE del esquema, y no es cosmético: `:8443` con
+ * `http://` delante es una dirección que se lee mal en un móvil y se teclea peor.
+ * Un `CWEB_PUERTO_TS` explícito manda sobre los dos.
+ *
+ * ⚠ Y ninguno de los dos puede ser el 443: ahí escucha `sshd` en `0.0.0.0`, o sea
+ * también en la interfaz de la tailnet. Se mueve esto, no `sshd` — tocar el puerto
+ * por el que se entra a la máquina, desde dentro de la máquina, es la clase de
+ * cambio que te deja fuera. Medido el 2026-09-09 y confirmado el 2026-09-10.
+ */
+export function publicacion(env = process.env) {
+  const pedido = String(env?.CWEB_TS_ESQUEMA ?? '').trim().toLowerCase();
+  const esquema = pedido === 'https' ? 'https' : 'http';
+  const puerto = String(env?.CWEB_PUERTO_TS ?? '').trim() || (esquema === 'https' ? '8443' : '8080');
+  return { esquema, puerto, bandera: `--${esquema}=${puerto}` };
+}
+
+/** La orden que deja el `serve` puesto, dada la publicación y el puerto local. */
+export function ordenDeServir(pub, puertoWeb) {
+  return `sudo -n tailscale serve --bg ${pub.bandera} http://127.0.0.1:${puertoWeb}`;
+}
+
+/** `http://` o `https://` + host:puerto. Una sola forma de componer la URL. */
+export function urlPublica(host, pub) {
+  return `${pub.esquema}://${String(host ?? '').replace(/\.$/, '')}:${pub.puerto}/`;
+}
+
+
 /** `dev-1.ejemplo.ts.net.` → `dev-1`. Vale para el DNSName o para el nombre a secas. */
 export function nombreCorto(dns) {
   if (!dns) return null;
@@ -62,7 +123,7 @@ export function hayDeriva(pedido, dns) {
  * qué pasó, cuál es la URL que sí funciona AHORA (para no quedarse tirado), y
  * cómo recuperar el nombre estable (para que no vuelva a pasar).
  */
-export function avisoDeDeriva(pedido, dns, puertoTs = '8443') {
+export function avisoDeDeriva(pedido, dns, pub = publicacion()) {
   if (!hayDeriva(pedido, dns)) return '';
   const tiene = nombreCorto(dns);
   const completo = String(dns).replace(/\.$/, '');
@@ -71,11 +132,11 @@ export function avisoDeDeriva(pedido, dns, puertoTs = '8443') {
     `ocupado por un nodo viejo. Tailscale NO falla al hacer esto: sufija y sigue.\n` +
     `\n` +
     `Qué acaba de romperse: la app instalada en el móvil apunta a ` +
-    `https://${pedido}.<tailnet>:${puertoTs}/ , que resuelve al nodo muerto. Se ve ` +
-    `como "Failed to fetch", no como un cambio de dirección.\n` +
+    `${pub.esquema}://${pedido}.<tailnet>:${pub.puerto}/ , que resuelve al nodo muerto. ` +
+    `Se ve como "Failed to fetch", no como un cambio de dirección.\n` +
     `\n` +
     `La URL que SÍ funciona ahora:\n` +
-    `  https://${completo}:${puertoTs}/\n` +
+    `  ${urlPublica(completo, pub)}\n` +
     `\n` +
     `Para recuperar "${pedido}":\n` +
     `  1. Borra los nodos apagados que se llaman "${pedido}" en\n` +
@@ -315,13 +376,13 @@ export function serveHuerfano(dnsNodo, serve) {
  * que sin él quedan los dos publicados y el siguiente que lea el status puede
  * volver a coger el muerto.
  */
-export function avisoDeServeHuerfano(dnsNodo, serve, puertoTs = '8443', puertoWeb = '8020') {
+export function avisoDeServeHuerfano(dnsNodo, serve, pub = publicacion(), puertoWeb = '8020') {
   const { huerfanos, propios, sabe } = serveHuerfano(dnsNodo, serve);
   if (!sabe || huerfanos.length === 0) return '';
   const nodo = String(dnsNodo).replace(/\.$/, '');
   const arreglo =
     `  sudo -n tailscale serve reset\n` +
-    `  sudo -n tailscale serve --bg --https=${puertoTs} http://127.0.0.1:${puertoWeb}`;
+    `  ${ordenDeServir(pub, puertoWeb)}`;
 
   return `⚠⚠ EL \`serve\` PUBLICA UN NOMBRE QUE ESTE NODO YA NO TIENE.\n` +
     `Este nodo es "${nodo}", pero tailscale serve sirve bajo:\n` +
@@ -362,13 +423,76 @@ export function avisoDeServeHuerfano(dnsNodo, serve, puertoTs = '8443', puertoWe
  * falla —TLS y enrutado por nombre dentro de tailscaled—, y ése sólo se recorre
  * pidiendo por el FQDN. Se le da la IP para saltarse el DNS, no el nombre.
  *
- * ⚠ Sin `-k`: el certificado es de Let's Encrypt por ACME y tiene que validar,
- * porque el móvil tampoco va a aceptar uno malo. Si no valida, esto es un fallo.
+ * ⚠ Y NUNCA lleva `-k`, ni cuando se publica por HTTPS: el certificado tiene que
+ * validar, porque el móvil tampoco va a aceptar uno malo. Si no valida, esto es un
+ * fallo y no un detalle que saltarse.
+ *
+ * ⚠⚠ Publicando por `http` esto es MÁS estricto que antes, no menos, y conviene
+ * saber por qué: el tramo que se prueba sigue siendo el mismo —enrutado por nombre
+ * dentro de tailscaled— pero **deja de haber un paso que puede colgarse**. Con
+ * HTTPS y el certificado pendiente, tailscaled aceptaba la conexión y se quedaba
+ * en el handshake; `--max-time 10` devolvía `000` y eso se leía igual que «no hay
+ * serve». Medido el 2026-09-11: 27 handshakes así desde el móvil.
  */
-export function ordenDeProbar(dnsNodo, ip, puertoTs = '8443', ruta = '/api/salud') {
+export function ordenDeProbar(dnsNodo, ip, pub = publicacion(), ruta = '/api/salud') {
   const fqdn = String(dnsNodo ?? '').replace(/\.$/, '');
   if (!fqdn) return null;
-  const resolucion = ip ? `--resolve ${fqdn}:${puertoTs}:${ip} ` : '';
+  const resolucion = ip ? `--resolve ${fqdn}:${pub.puerto}:${ip} ` : '';
   return `curl -s --max-time 10 -o /dev/null -w '%{http_code}' ` +
-    `${resolucion}https://${fqdn}:${puertoTs}${ruta}`;
+    `${resolucion}${pub.esquema}://${fqdn}:${pub.puerto}${ruta}`;
+}
+
+
+// ---------------------------------------------------------------------------
+// La TERCERA deriva: el nombre es el bueno, y el ESQUEMA o el PUERTO no lo son.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ Hace falta porque `serve --bg` AÑADE, nunca reemplaza — la misma propiedad
+// que ya costó la app el 2026-09-10 por el lado del nombre. Al cambiar de `--https`
+// a `--http` en una máquina que ya servía, quedan publicadas LAS DOS puertas:
+// comprobado en esta máquina el 2026-09-11, `serve status --json` traía a la vez
+// `dev…:8443 {HTTPS}` y `dev…:8080 {HTTP}`.
+//
+// Y la de más no es inofensiva: es exactamente la que cuelga al móvil pidiendo un
+// certificado que Let's Encrypt no va a dar. O sea que dejarla es dejar puesta la
+// trampa que este cambio existe para quitar — y `serveHuerfano()` no la ve, porque
+// el host ES el de este nodo.
+//
+// ⚠ El esquema NO se adivina del puerto: se lee del `TCP` que el propio `serve
+// status --json` publica (`{"8443":{"HTTPS":true},"8080":{"HTTP":true}}`). Es la
+// regla de `cweb url` de siempre: se PREGUNTA por el estado, no se supone.
+
+/** El esquema con el que `serve` publica un puerto, según su propio estado. */
+export function esquemaPublicado(serve, puerto) {
+  const t = serve?.TCP?.[String(puerto)];
+  if (!t || typeof t !== 'object') return null;
+  if (t.HTTPS) return 'https';
+  if (t.HTTP) return 'http';
+  return null;
+}
+
+/**
+ * Lo que este nodo publica y que NO es la publicación declarada.
+ *
+ * @returns {{sobran: string[], sabe: boolean}}
+ *
+ * ⚠ `sabe: false` cuando no hay con qué comparar (nodo fuera, o `serve status`
+ * ilegible). Entonces no se afirma que sobre nada: mismo criterio que
+ * `serveHuerfano()` y que el `NO SÉ` del freno del coordinador. Aquí importa el
+ * doble, porque quien llama a esto RESETEA, y resetear por no saber se lleva por
+ * delante un serve puesto a mano.
+ */
+export function publicacionSobrante(dnsNodo, serve, pub = publicacion()) {
+  const { propios, sabe } = serveHuerfano(dnsNodo, serve);
+  if (!sabe) return { sobran: [], sabe: false };
+
+  const sobran = [];
+  for (const clave of propios) {
+    const puerto = (String(clave).match(/:(\d+)$/) || [])[1] || '';
+    const esq = esquemaPublicado(serve, puerto);
+    // Sin esquema legible no se afirma que sobre: no saber no es motivo para borrar.
+    if (esq === null) continue;
+    if (puerto !== String(pub.puerto) || esq !== pub.esquema) sobran.push(`${clave} (${esq})`);
+  }
+  return { sobran, sabe: true };
 }

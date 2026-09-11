@@ -4,23 +4,28 @@
 // rastro de QUÉ se lanzó, y esto hay que repetirlo **cada vez que se rehaga el
 // dev**. Commiteado, «¿cómo se puso?» es una pregunta con respuesta.
 //
-// ⚠⚠ EL PUERTO ES 8443 Y NO 443, Y NO ES UN CAPRICHO. En esta máquina `sshd`
-// escucha en `0.0.0.0:443` —o sea también en la interfaz de la tailnet—, así que
-// `--https=443` chocaría. Medido el 2026-09-09 y confirmado el 2026-09-10.
-// Se elige mover ESTO y no `sshd`: tocar el puerto por el que se entra a la
-// máquina, desde dentro de la máquina, es la clase de cambio que te deja fuera.
-// El precio es que la URL lleva `:8443`, y no impide nada — un origen con puerto
-// sigue siendo contexto seguro, así que la PWA se instala igual.
+// ⚠⚠ EL PUERTO NO ES EL 443, Y NO ES UN CAPRICHO. En esta máquina `sshd` escucha
+// en `0.0.0.0:443` —o sea también en la interfaz de la tailnet—, así que publicar
+// ahí chocaría. Medido el 2026-09-09 y confirmado el 2026-09-10. Se elige mover
+// ESTO y no `sshd`: tocar el puerto por el que se entra a la máquina, desde dentro
+// de la máquina, es la clase de cambio que te deja fuera.
+//
+// ⚠⚠ Y EL ESQUEMA ES `http` DESDE EL 2026-09-11: sin certificado. El porqué está
+// medido en `publicacion()` de `nodo.mjs` (Let's Encrypt da 5 certificados por
+// semana y por nombre, y este nombre se reusa en cada dev a propósito). Lo que eso
+// cuesta —la PWA deja de poder INSTALARSE, porque `http` no es contexto seguro—
+// está en el README, § «Lo que cuesta no tener certificado».
 //
 // Uso:  node scripts/tailscale-serve.mjs [--esperar <minutos>]
 
 import { execFileSync, execSync } from 'node:child_process';
-import { serveHuerfano, ordenDeProbar } from './nodo.mjs';
+import { ordenDeProbar, ordenDeServir, publicacion, publicacionSobrante,
+         serveHuerfano, urlPublica } from './nodo.mjs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 const PUERTO_WEB = process.env.CWEB_PORT ?? '8020';
-const PUERTO_TS = process.env.CWEB_PUERTO_TS ?? '8443';
+const PUB = publicacion();
 const COORD = process.env.COORD_HOME || join(homedir(), 'src', 'telegram-coordinator');
 const i = process.argv.indexOf('--esperar');
 const MINUTOS = i >= 0 ? Number(process.argv[i + 1]) : 30;
@@ -85,16 +90,22 @@ console.log(`[serve] nodo conectado: ${nombre}`);
 // borrar.
 let serveActual = null;
 try { serveActual = JSON.parse(sh('tailscale serve status --json').out || 'null'); } catch { /* se degrada */ }
+// ⚠ Dos derivas, dos comprobaciones: el HOST que sobra (nombre anterior, el fallo
+// del 2026-09-10) y el ESQUEMA/PUERTO que sobra (pasar de `--https` a `--http` deja
+// LAS DOS puertas publicadas, medido el 2026-09-11). La de más no es inofensiva:
+// es la que cuelga al móvil pidiendo un certificado que no va a llegar.
 const { huerfanos } = serveHuerfano(nombre, serveActual);
-if (huerfanos.length) {
-  console.log(`[serve] limpiando ${huerfanos.length} host(s) de un nombre anterior: ${huerfanos.join(', ')}`);
+const { sobran } = publicacionSobrante(nombre, serveActual, PUB);
+if (huerfanos.length || sobran.length) {
+  console.log(`[serve] limpiando lo que no es ${PUB.bandera}: ` +
+    `${[...huerfanos.map((h) => `${h} de otro nombre`), ...sobran].join(', ')}`);
   const limpieza = sh('sudo -n tailscale serve reset');
   if (!limpieza.ok) console.error(`[serve] no pude limpiarlos:\n${limpieza.out.slice(-300)}`);
 }
 
 // ⚠ `--bg` para que la configuración quede puesta y sobreviva a este proceso:
 // `tailscale serve` sin él se queda en primer plano y al morir deja de servir.
-const r = sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1:${PUERTO_WEB}`);
+const r = sh(ordenDeServir(PUB, PUERTO_WEB));
 if (!r.ok) {
   // ⚠ Tailscale ya imprime el enlace EXACTO para dar el permiso que falta, con el
   // id de este nodo dentro. Repetirlo con palabras propias («ve a DNS → Enable
@@ -105,6 +116,9 @@ if (!r.ok) {
     ? `\n\n👉 Falta un permiso en tu tailnet, y es un clic:\n${enlace}\n\n` +
       'Cuando lo des, vuelve a lanzarlo con:  /use cweb → tailscale'
     : '';
+  // ⚠ Publicando por `http` este permiso ya no hace falta (el de HTTPS/certificados
+  // es lo que pedía ese enlace), así que si aparece es otra cosa: se pasa el suyo
+  // tal cual y no se interpreta.
   const m = `❌ No pude poner la web detrás de Tailscale:\n${r.out.slice(-600)}${pistaHttps}`;
   console.error(m);
   avisar(m);
@@ -112,11 +126,20 @@ if (!r.ok) {
 }
 
 // No se anuncia hasta comprobarlo: un puerto configurado no es una web que responda.
-const prueba = sh(ordenDeProbar(nombre, nodo.ip, PUERTO_TS));
-const url = `https://${nombre}:${PUERTO_TS}/`;
+const prueba = sh(ordenDeProbar(nombre, nodo.ip, PUB));
+const url = urlPublica(nombre, PUB);
+// ⚠ Y NO se promete «añádela a la pantalla de inicio» cuando se publica por `http`:
+// sin contexto seguro no hay service worker, y sin service worker Android no ofrece
+// instalarla. Prometer un botón que no va a salir es el aviso que enseña a
+// desconfiar del resto del mensaje.
+const comoGuardarla = PUB.esquema === 'https'
+  ? 'Ábrela y dale a «Añadir a pantalla de inicio» para instalarla.'
+  : 'Ábrela y guárdala en marcadores. ⚠ Sin certificado Android NO ofrece ' +
+    '«Añadir a pantalla de inicio»: eso pide contexto seguro (README § «Lo que ' +
+    'cuesta no tener certificado»).';
 const m = prueba.out === '200'
   ? `✅ La web de lectura ya se ve desde tu móvil (con Tailscale activo):\n\n${url}\n\n` +
-    'Ábrela y dale a «Añadir a pantalla de inicio» para instalarla.'
+    comoGuardarla
   : `⚠ Tailscale ya sirve la web en ${url}, pero al probarla me contestó ` +
     `"${prueba.out || 'nada'}" en vez de 200. Mira \`cweb log\`.`;
 console.log(m);

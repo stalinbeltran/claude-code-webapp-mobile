@@ -43,7 +43,7 @@ export const PLANTILLA = `
             autocapitalize="off"
             autocorrect="off"
             spellcheck="false"
-            placeholder="dev.tured.ts.net:8443"
+            placeholder="dev.tured.ts.net:8080"
             @keydown.enter.prevent="usarDireccion(false)">
           <div class="fila-botones">
             <button class="enviar" :disabled="probando" @click="usarDireccion(false)">

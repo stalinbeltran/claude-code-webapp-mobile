@@ -30,15 +30,16 @@ import { existsSync, readFileSync, writeFileSync, rmSync, mkdtempSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { avisoDeDeriva, avisoDeServeHuerfano, nombreCorto, ordenDeUnir,
-         serveHuerfano } from './nodo.mjs';
+import { avisoDeDeriva, avisoDeServeHuerfano, nombreCorto, ordenDeServir,
+         ordenDeUnir, publicacion, publicacionSobrante, serveHuerfano,
+         urlPublica } from './nodo.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const NOMBRE = process.env.CWEB_HOSTNAME ?? 'dev';
 const PUERTO_WEB = process.env.CWEB_PORT ?? '8020';
-// ⚠ 8443 y no 443: `sshd` escucha en `0.0.0.0:443` en estas máquinas, o sea
-// también en la interfaz de la tailnet. Se mueve esto, no `sshd`.
-const PUERTO_TS = process.env.CWEB_PUERTO_TS ?? '8443';
+// Esquema y puerto son DATO: `publicacion()` en `nodo.mjs`, donde está medido por
+// qué desde el 2026-09-11 se publica por `http` y sin certificado.
+const PUB = publicacion();
 const SECO = process.argv.includes('--seco');
 
 /** Avisa por Telegram. ⚠ NUNCA puede tumbar esto: es una comodidad, y este
@@ -86,7 +87,8 @@ if (SECO) {
   console.log(`   nombre pedido       : ${NOMBRE}${
     e.dentro && nombreCorto(e.nombre) !== NOMBRE ? `  ⚠ pero se llama "${nombreCorto(e.nombre)}"` : ''}`);
   console.log(`   authkey disponible  : ${clave ? 'sí (no se imprime)' : 'NO'}`);
-  console.log(`   serve que pondría   : --https=${PUERTO_TS} → http://127.0.0.1:${PUERTO_WEB}`);
+  console.log(`   serve que pondría   : ${PUB.bandera} → http://127.0.0.1:${PUERTO_WEB}`);
+  console.log(`   URL que quedaría    : ${urlPublica(e.nombre ?? `${NOMBRE}.<tailnet>`, PUB)}`);
   process.exit(0);
 }
 
@@ -132,8 +134,7 @@ if (!e.dentro) {
 
 // ⚠ `--bg` para que la configuración sobreviva a este proceso: sin él, `serve`
 // se queda en primer plano y al morir deja de servir.
-const ponerServe = () =>
-  sh(`sudo -n tailscale serve --bg --https=${PUERTO_TS} http://127.0.0.1:${PUERTO_WEB}`);
+const ponerServe = () => sh(ordenDeServir(PUB, PUERTO_WEB));
 const publicado = () => {
   try { return JSON.parse(sh('tailscale serve status --json').out || 'null'); } catch { return null; }
 };
@@ -155,10 +156,16 @@ if (!r.ok) {
 // ⚠ Y se RELEE el nombre del nodo: el de `e` se leyó justo después del `up`,
 // que es exactamente el instante que puede mentir.
 e = estado();
+// ⚠⚠ Y se mira LO MISMO por sus DOS mitades, porque son dos derivas distintas:
+// el HOST publicado (`serveHuerfano`, el fallo del 2026-09-10) y el ESQUEMA/PUERTO
+// (`publicacionSobrante`, el del 2026-09-11). La segunda es la que deja viva la
+// puerta `--https` al pasar a `--http`: mismo nombre, así que la primera no la ve,
+// y es justo la que cuelga al móvil pidiendo un certificado que no va a llegar.
 let { huerfanos } = serveHuerfano(e.nombre, publicado());
-if (huerfanos.length) {
-  console.log(`[tailscale] el serve quedó bajo ${huerfanos.join(', ')} y este nodo es ` +
-    `${e.nombre}: lo rehago.`);
+let { sobran } = publicacionSobrante(e.nombre, publicado(), PUB);
+if (huerfanos.length || sobran.length) {
+  console.log(`[tailscale] el serve no coincide con lo declarado (${PUB.bandera}): ` +
+    `${[...huerfanos.map((h) => `${h} de otro nombre`), ...sobran].join(', ')}. Lo rehago.`);
   sh('sudo -n tailscale serve reset');   // `--bg` añade, no reemplaza: hay que limpiar
   r = ponerServe();
   if (!r.ok) {
@@ -166,11 +173,16 @@ if (huerfanos.length) {
     process.exit(0);
   }
   ({ huerfanos } = serveHuerfano(e.nombre, publicado()));
-  if (huerfanos.length) {
+  ({ sobran } = publicacionSobrante(e.nombre, publicado(), PUB));
+  if (huerfanos.length || sobran.length) {
     // ⚠ Si tras rehacerlo SIGUE mal, se dice en voz alta en vez de terminar con
     // un ✅: un final feliz que no comprueba el dato que decide es el fallo que
     // este repo ya ha pagado tres veces.
-    const m = avisoDeServeHuerfano(e.nombre, publicado(), PUERTO_TS, PUERTO_WEB);
+    const m = avisoDeServeHuerfano(e.nombre, publicado(), PUB, PUERTO_WEB) ||
+      `⚠⚠ EL \`serve\` NO QUEDÓ EN LO DECLARADO (${PUB.bandera}).\n` +
+      `Sigue publicando: ${sobran.join(', ')}\n\n` +
+      `Se arregla con esto, y es idempotente:\n` +
+      `  sudo -n tailscale serve reset\n  ${ordenDeServir(PUB, PUERTO_WEB)}`;
     console.error(m);
     avisar(m);
     process.exit(0);
@@ -183,10 +195,10 @@ if (huerfanos.length) {
 // instalada en el móvil acababa de quedarse apuntando a un server muerto porque
 // el nodo había entrado como `dev-1`. Un final feliz que no comprueba el dato
 // que decide es el fallo que este proyecto ya ha pagado tres veces.
-const deriva = avisoDeDeriva(NOMBRE, e.nombre, PUERTO_TS);
+const deriva = avisoDeDeriva(NOMBRE, e.nombre, PUB);
 if (deriva) {
   console.error(deriva);
   avisar(deriva);
   process.exit(0);   // ⚠ 0 siempre: corre dentro del aprovisionamiento
 }
-console.log(`✅ Listo: https://${e.nombre ?? NOMBRE}:${PUERTO_TS}/`);
+console.log(`✅ Listo: ${urlPublica(e.nombre ?? NOMBRE, PUB)}`);

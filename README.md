@@ -45,11 +45,14 @@ Y cuando esté Tailscale *(ejemplo, NO ejecutado)*:
 ```
 tú  → url
 bot ← Desde el móvil (con Tailscale activo):
-        https://dev.tu-tailnet.ts.net/
+        http://dev.tu-tailnet.ts.net:8080/
 ```
 
-Abres esa dirección en el móvil, **Añadir a pantalla de inicio**, y ya se abre
-como una app. No hay pantalla de login: la identidad la pone la red.
+Abres esa dirección en el móvil y la guardas en marcadores. No hay pantalla de
+login: la identidad la pone la red.
+
+⚠ **«Añadir a pantalla de inicio» ya NO sale**, y no es un fallo del móvil: ver
+[§ Por qué ya no hay certificado](#por-qué-ya-no-hay-certificado-2026-09-11).
 
 ### Si algo va mal
 
@@ -119,7 +122,7 @@ dirección guardada y salta.
 (abres el icono de siempre; la máquina se rehizo y ahora es `dev-1`)
 
 app ← 🔴 No he podido hablar con el servidor.
-      Intentado contra: https://dev.tured.ts.net:8443
+      Intentado contra: http://dev.tured.ts.net:8080
       …
       2. La máquina se rehízo y CAMBIÓ DE NOMBRE […] escríbela aquí abajo: se
       guarda en este móvil y la app salta sola a partir de ahora. NO hace falta
@@ -129,9 +132,9 @@ app ← 🔴 No he podido hablar con el servidor.
 
 tú  → (en Telegram)  /use cweb   →   url
 bot ← Desde el móvil (con Tailscale activo):
-        https://dev-1.tured.ts.net:8443/
+        http://dev-1.tured.ts.net:8080/
 
-tú  → (despliegas el pliegue y escribes)  dev-1.tured.ts.net:8443
+tú  → (despliegas el pliegue y escribes)  dev-1.tured.ts.net:8080
 app ← [Guardar e ir]  → probando…        ← comprueba que contesta ANTES de guardar
       (salta; a partir de aquí el icono de siempre te trae aquí)
 ```
@@ -181,13 +184,97 @@ hay forma de evitarlo: código que nunca llegó al móvil no puede ayudarte.
 ## Estado
 
 **Fases 1 y 2 completas**, más la purga y la PWA de la fase 4. **Tailscale ya
-está puesto**: la web se sirve por `tailscale serve` en el puerto **8443** (no el
+está puesto**: la web se sirve por `tailscale serve` en el puerto **8080** (no el
 443, que aquí lo tiene `sshd`) y se usa desde el móvil.
+
+⚠ **Y se publica por `http`, sin certificado, desde el 2026-09-11.** El porqué y
+lo que cuesta, justo abajo.
 
 ⚠ **La dirección depende del NOMBRE del nodo, y ese nombre puede cambiar al
 rehacer la máquina.** No la escribas de memoria: pídela con `/use cweb` → `url`,
 que la lee del estado real. El caso en que cambia, y qué hacer, arriba en
 [«Failed to fetch»](#-no-pude-leer-las-conversaciones-failed-to-fetch--casi-siempre-es-la-url-no-la-app).
+
+### Por qué ya no hay certificado (2026-09-11)
+
+**Medido en esta máquina el 2026-09-11.** El nodo estaba bien (`dev`, móvil
+conectado directo), el `serve` bien puesto y la app contestando **200 en 8 ms** por
+loopback. Y desde el móvil la web «tardaba muchísimo». Lo que decía el journal:
+
+```
+429 rateLimited: too many certificates (5) already issued for this exact set
+of identifiers in the last 168h0m0s, retry after 2026-09-12 20:04:42 UTC
+```
+
+Let's Encrypt da **5 certificados por semana y por nombre exacto**. Y aquí el
+nombre exacto es siempre el mismo **a propósito**: el `pre_destroy` del servicio da
+de baja el nodo al destruir el droplet para que el dev siguiente recupere `dev` y
+la PWA instalada no se quede apuntando a un sitio muerto.
+
+> ⚠⚠ **El mecanismo que protege la URL es el que quema el límite.** No es un fallo
+> de ninguno de los dos: es que nadie había contado que «rehacer el dev» y «pedir
+> un certificado» son el mismo suceso. Techo real: **5 dev por semana**.
+
+Y falla del peor modo posible: el sexto dev nace con todo verde —nodo, serve,
+unidad, `Result=success`— y el móvil colgado en un handshake TLS que no termina.
+**27 handshakes así en dos horas**, ese día. Desde fuera se lee como «la app está
+lenta», nunca como «falta un certificado».
+
+**La salida es no pedir ninguno.** Dentro de la tailnet el tráfico ya va cifrado
+por WireGuard, y tailscaled escucha **sólo** en la IP de la tailnet (comprobado ese
+día: `100.x:8080`, nunca en la interfaz pública; `ufw` ni la ve). El bind a
+loopback del servidor no se toca, que es donde de verdad está el freno.
+
+#### Lo que cuesta no tener certificado
+
+**Una cosa, y es real: la app deja de poder INSTALARSE.** `http://` en un host que
+no es `localhost` no es *contexto seguro*, así que el navegador no registra el
+service worker — y sin service worker Android no ofrece «Añadir a pantalla de
+inicio». Con ello se pierden las dos cosas que daba:
+
+| | con certificado | sin certificado |
+|---|---|---|
+| se ve desde el móvil | ✅ | ✅ |
+| icono instalado en la pantalla de inicio | ✅ | ❌ **se pierde** |
+| abre sin red (armazón en caché) | ✅ | ❌ **se pierde** |
+| sobrevive a rehacer el dev | ✅ **hasta 5 veces por semana** | ✅ siempre |
+
+⚠ `app.js` registra el service worker con `navigator.serviceWorker?.register(…)`,
+así que **sin contexto seguro no se cae: se degrada**. La app funciona entera; lo
+único que no hay es icono ni caché.
+
+⚠ **Y el icono que YA esté instalado sigue abriendo**, porque su armazón está en
+la caché de su origen `https://`. Sirve de **trampolín**: abre, no alcanza a nadie,
+y desde ahí se escribe la dirección nueva. Es exactamente para lo que se hizo
+(ver [arriba](#y-desde-el-2026-09-10-no-hace-falta-reinstalar-la-app-se-le-cambia-la-dirección)).
+
+#### La marcha atrás es un dato, no un parche
+
+```sh
+CWEB_TS_ESQUEMA=https        # y el puerto vuelve solo al 8443
+```
+
+No hay nada de código que tocar: esquema y puerto salen de `publicacion()` en
+`scripts/nodo.mjs`, y hay un test que **falla si algún script vuelve a componer la
+orden del `serve` a mano** — si eso pasara, la variable mentiría en silencio, que
+es peor que no tenerla.
+
+#### La trampa al cambiar de esquema, que ya mordió
+
+`tailscale serve --bg` **AÑADE y no reemplaza** — la misma propiedad que costó la
+app entera el 2026-09-10 por el lado del nombre. Al pasar de `--https` a `--http`
+quedan publicadas **las dos puertas**; comprobado ese día:
+
+```json
+"TCP": { "8080": { "HTTP": true }, "8443": { "HTTPS": true } }
+```
+
+Y la de más no es inofensiva: es justo la que cuelga al móvil pidiendo el
+certificado que no va a llegar. **`serveHuerfano()` no puede verla**, porque el
+host *es* el de este nodo — es una tercera deriva, distinta de «nodo ↔ serve».
+La detecta `publicacionSobrante()`, que lee el esquema del `TCP` del propio
+`serve status --json` en vez de deducirlo del número de puerto, y los dos scripts
+resetean y reponen cuando lo publicado no es lo declarado.
 
 | Documento | Qué contesta |
 |---|---|
