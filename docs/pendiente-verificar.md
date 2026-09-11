@@ -124,8 +124,17 @@ En orden, y el orden importa:
 | 2 | desde el mini: `destroy dev --yes` | en el log tiene que aparecer **`claude-web: recogiendo antes de destruir…`** |
 | 3 | mira la tailnet desde el móvil o la consola | el nodo del dev **ya no está**, en segundos |
 | 4 | desde el mini: `launch dev --type dev` | |
-| 5 | cuando termine, `/use cweb` → `url` | tiene que decir **`https://dev.<tailnet>:8443/`**, SIN sufijo |
-| 6 | abre esa URL en el móvil e instala la PWA | y a partir de aquí ya no debería cambiar nunca |
+| 5 | cuando termine, `/use cweb` → `url` | tiene que decir **`http://dev.<tailnet>:8080/`**, SIN sufijo |
+| 6 | abre esa URL en el móvil y guárdala | y a partir de aquí ya no debería cambiar nunca |
+
+⚠ **El paso 5 dice `http` y `8080` desde el 2026-09-11**, no `https` y `8443`: se
+publica sin certificado (README § «Por qué ya no hay certificado»). Si sale
+`https://…:8443/`, esta máquina trae código anterior a ese cambio o alguien puso
+`CWEB_TS_ESQUEMA=https` — las dos cosas son legítimas, pero hay que saber cuál es.
+
+⚠ **Y el paso 6 ya no dice «instala la PWA»**, a propósito: sin certificado no hay
+contexto seguro, así que Android **no ofrece** «Añadir a pantalla de inicio». Que no
+salga el botón no es un fallo de este ciclo; esperarlo sí haría que se leyera como uno.
 
 **Si el paso 5 sale con sufijo**, `avisoDeDeriva()` te habrá avisado por Telegram
 diciendo qué pasó — ése es el freno, y que salte no es que esto no funcione: mira

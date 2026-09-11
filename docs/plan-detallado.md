@@ -491,9 +491,16 @@ respaldo, su choque con la allowlist — y **la única urgencia del proyecto**.
 - ⚠ **Hicieron falta DOS permisos, no uno**: autorizar el nodo, y habilitar
   `serve` en la tailnet (un enlace aparte, que Tailscale imprime con el id del
   nodo dentro).
-- ⚠ **El puerto es 8443**, porque `sshd` ocupa el 443 en todas las interfaces. Se
+- ⚠ **El puerto no es el 443**, porque `sshd` lo ocupa en todas las interfaces. Se
   movió esto y no `sshd`: cambiar el puerto de entrada a la máquina, desde dentro
   de la máquina, es la clase de cambio que te deja fuera.
+- ⚠⚠ **TODO LO DE ARRIBA ES DE 2026-09-10 Y CAMBIÓ EL 2026-09-11: hoy se publica
+  por `http` en el 8080, sin certificado.** No lo leas como el presente. El motivo
+  —Let's Encrypt da 5 certificados por semana y por nombre exacto, y este nombre se
+  reutiliza en cada dev a propósito— y lo que cuesta —sin contexto seguro la PWA
+  **ya no se puede instalar**— están en el README, § «Por qué ya no hay
+  certificado». El segundo permiso de la tailnet (habilitar HTTPS) tampoco hace
+  falta ya.
 
 ### T4.4 · Que sobreviva a que se destruya el `dev` — ✅ el requisito del dueño
 
