@@ -217,8 +217,20 @@ la PWA instalada no se quede apuntando a un sitio muerto.
 
 Y falla del peor modo posible: el sexto dev nace con todo verde —nodo, serve,
 unidad, `Result=success`— y el móvil colgado en un handshake TLS que no termina.
-**27 handshakes así en dos horas**, ese día. Desde fuera se lee como «la app está
-lenta», nunca como «falta un certificado».
+**47 handshakes así del móvil** (61 en total) entre las **22:05:34 y las 22:32:58
+UTC** de ese día. Desde fuera se lee como «la app está lenta», nunca como «falta un
+certificado».
+
+```sh
+sudo journalctl -u tailscaled --no-pager | grep -c "TLS handshake error"
+```
+
+⚠ **Ese número se escribió primero como «27 en dos horas», y las dos mitades estaban
+mal**: el 27 era un recuento **a mitad del suceso** —se contó a las 22:20 y siguieron
+llegando hasta las 22:32— y las «dos horas» eran la ventana del `--since` que se le
+pasó al `journalctl`, no lo que duró. Lo pilló el agente `verificador` contando sobre
+el journal entero. Es la regla 2 de escritura del coordinador incumplida en el sitio
+de siempre: **un número sin su comando se lee como medido**, y éste lo era a medias.
 
 **La salida es no pedir ninguno.** Dentro de la tailnet el tráfico ya va cifrado
 por WireGuard, y tailscaled escucha **sólo** en la IP de la tailnet (comprobado ese
@@ -275,6 +287,19 @@ host *es* el de este nodo — es una tercera deriva, distinta de «nodo ↔ serv
 La detecta `publicacionSobrante()`, que lee el esquema del `TCP` del propio
 `serve status --json` en vez de deducirlo del número de puerto, y los dos scripts
 resetean y reponen cuando lo publicado no es lo declarado.
+
+✅ **Y ese camino está visto en vivo, no sólo en test.** Al aplicar el cambio en esta
+máquina, `tailscale-serve.mjs` se encontró justo ese estado y lo dijo él solo:
+
+```
+[serve] limpiando lo que no es --http=8080: dev.tail376e31.ts.net:8443 (https)
+✅ La web de lectura ya se ve desde tu móvil (con Tailscale activo):
+   http://dev.tail376e31.ts.net:8080/
+```
+
+El `(https)` de esa línea lo pone `publicacionSobrante()` y nadie más, y el ✅ sólo
+se imprime si `ordenDeProbar` devolvió 200 por el FQDN de la tailnet. Después:
+`ss -lntp` ya no lista el 8443 y `"TCP"` queda en `{"8080":{"HTTP":true}}`.
 
 | Documento | Qué contesta |
 |---|---|

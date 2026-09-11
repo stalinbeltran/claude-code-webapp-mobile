@@ -57,8 +57,17 @@
 // como «la app tarda muchísimo» y no como «falta un certificado».
 //
 // Medido en esta máquina el 2026-09-11: nacida a las 21:54 UTC, `certs/` sólo con
-// la clave de la cuenta ACME, y **27 handshakes fallidos** del móvil contra ese
-// 429 en dos horas. La app contestaba 200 en 8 ms por loopback todo el rato.
+// la clave de la cuenta ACME, y **47 handshakes fallidos del móvil** contra ese 429
+// (61 en total) entre las **22:05:34 y las 22:32:58 UTC**, o sea 27 minutos. La app
+// contestaba 200 en 8 ms por loopback, medido en ese momento.
+//
+//     sudo journalctl -u tailscaled --no-pager | grep -c "TLS handshake error"
+//
+// ⚠ Esto se escribió primero como «27 en dos horas», y las DOS mitades estaban mal:
+// el 27 era un recuento a mitad del suceso —se contó a las 22:20 y siguieron
+// llegando hasta las 22:32— y las «dos horas» eran la ventana del `--since` que se
+// le pasó al `journalctl`, no lo que duró. Un número sin su comando se lee como
+// medido, y éste lo era a medias (regla 2 de escritura del coordinador).
 //
 // ⚠ Dentro de la tailnet el tráfico ya va cifrado por WireGuard, y tailscaled
 // escucha SÓLO en la IP de la tailnet (comprobado: `100.x:8080`, nunca en la
@@ -432,7 +441,7 @@ export function avisoDeServeHuerfano(dnsNodo, serve, pub = publicacion(), puerto
  * dentro de tailscaled— pero **deja de haber un paso que puede colgarse**. Con
  * HTTPS y el certificado pendiente, tailscaled aceptaba la conexión y se quedaba
  * en el handshake; `--max-time 10` devolvía `000` y eso se leía igual que «no hay
- * serve». Medido el 2026-09-11: 27 handshakes así desde el móvil.
+ * serve». Medido el 2026-09-11: 47 handshakes así desde el móvil en 27 minutos.
  */
 export function ordenDeProbar(dnsNodo, ip, pub = publicacion(), ruta = '/api/salud') {
   const fqdn = String(dnsNodo ?? '').replace(/\.$/, '');
