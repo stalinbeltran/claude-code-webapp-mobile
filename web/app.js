@@ -41,6 +41,15 @@ const api = async (ruta) => {
     throw new SinRed(e, ruta);
   }
   if (!r.ok) throw new Error(`${r.status} en ${ruta}`);
+  // ⚠ Detrás de Cloudflare Access, una sesión caducada NO es un error: es un 200
+  // con la página de login en HTML, después de una redirección. Parsearlo como
+  // JSON daría «Unexpected token <», que se lee como servidor roto. Se dice lo
+  // que es y lo que hay que hacer (recargar: el login vuelve a poner la sesión).
+  const tipo = r.headers.get('content-type') || '';
+  if (r.redirected || !/json/i.test(tipo)) {
+    throw new Error('El acceso pide volver a entrar: la sesión caducó. Recarga la app ' +
+      '(ciérrala y ábrela) y haz el login otra vez.');
+  }
   return r.json();
 };
 

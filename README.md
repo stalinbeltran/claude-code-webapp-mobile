@@ -262,6 +262,74 @@ la caché de su origen `https://`. Sirve de **trampolín**: abre, no alcanza a n
 y desde ahí se escribe la dirección nueva. Es exactamente para lo que se hizo
 (ver [arriba](#y-desde-el-2026-09-10-no-hace-falta-reinstalar-la-app-se-le-cambia-la-dirección)).
 
+### Acceso por Cloudflare: la alternativa que se prueba (2026-09-12)
+
+Tailscale quedó **marcado como válido** el 2026-09-12 (tag `tailscale-valido-2026-09-11`
+en este repo y en el lanzador): todo lo que mordió está cerrado con test. Y aun así el
+dueño decidió probar otro camino, porque «seguro van a salir nuevos». La única
+restricción: **la app tiene que poder instalarse en el móvil**.
+
+**Qué es:** un túnel de Cloudflare (`cloudflared`) que SALE del droplet hacia Cloudflare,
+sin abrir ningún puerto, y **Cloudflare Access** delante, que pide login (Google, o un
+PIN por correo) y recuerda la sesión hasta un mes. Comprobado en vivo el 2026-09-12
+desde el dev con un túnel rápido: HTTPS válido en 0,38 s.
+
+| | Tailscale | Cloudflare Tunnel + Access |
+|---|---|---|
+| certificado | Let's Encrypt, 5 por semana y por nombre; desde ayer viaja con la flota | lo pone Cloudflare; no hay nada que pedir ni que viajar |
+| nombre estable | el nodo tiene que RECUPERAR su nombre al rehacer el dev (`pre_destroy`, reclamar…) | es tu dominio; un dev nuevo levanta el mismo túnel con el mismo token |
+| en el móvil | la app de Tailscale, activa y fuera del ahorro de batería | nada: el navegador y tu login |
+| credencial | authkey, caduca a los 90 días | token del túnel, no caduca |
+| privacidad | el tráfico nunca sale de tus máquinas | **pasa en claro por el borde de Cloudflare** |
+| barrera | la identidad la pone el dispositivo | **Access es la única**; sin policy, abierta al mundo |
+| cuesta | 0 | un dominio en Cloudflare (unos dólares al año) |
+
+**Cómo se elige:** `CWEB_ACCESO=cloudflare|tailscale` en el llavero del lanzador. Vacío,
+lo decide el dato: hay token de túnel → cloudflare; si no → tailscale. Los dos caminos
+conviven: cambiar es cambiar una variable, y la vuelta atrás es la misma variable.
+
+**Lo que tienes que hacer tú, una vez** (nada de esto lo puede hacer un script):
+
+1. Un **dominio en Cloudflare** (comprarlo en Cloudflare Registrar, o mover uno).
+2. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, nombre
+   `claude-web`. Copia el token: el `eyJ…` del comando `cloudflared service install …`
+   que te enseña. En **Public Hostname**: subdominio `claude`, tu dominio, servicio
+   **HTTP** `127.0.0.1:8020`.
+3. **Zero Trust → Access → Applications → Add → Self-hosted**: dominio
+   `claude.<tu-dominio>`, *session duration* un mes, una policy **Allow** con
+   *Emails* = tu correo. Login por *One-time PIN* o Google, lo que prefieras.
+4. En el `.env` de la laptop:
+   ```
+   CWEB_ACCESO=cloudflare
+   CWEB_CF_TUNNEL_TOKEN=eyJ…
+   CWEB_CF_HOSTNAME=claude.<tu-dominio>
+   ```
+   y luego, desde el lanzador: `llavero enviar dev`, `llavero enviar mini`,
+   `remoto dev entornos aplicar --entorno claude-code-webapp-mobile` y
+   `remoto dev install-service --service claude-web`. O desde Telegram, en el dev:
+   `/use cweb` → `acceso`.
+5. Abre `https://claude.<tu-dominio>/` en el móvil, haz el login, y «Añadir a pantalla
+   de inicio».
+
+**Cómo se comprueba, y qué es la alarma:** `url` (o `acceso.mjs estado`) sondea
+`/api/salud` por el nombre público **sin seguir redirecciones**. Lo bueno es un **302**:
+llega, y Access manda al login. **Un 200 es la alarma**: la web contesta a cualquiera
+del mundo porque no hay policy; el mensaje dice cómo parar el túnel en ese momento.
+
+**Lo que la PWA necesita detrás de Access, ya puesto:** el manifest con
+`crossorigin="use-credentials"` (sin eso no sale «Añadir a pantalla de inicio»), una
+sesión caducada explicada como tal en vez de como «Failed to fetch», y un latido cada
+30 s en el flujo de eventos para que Cloudflare no corte la conexión muda. 24 tests en
+`tests/cloudflare.test.mjs`.
+
+⚠ **El token no se imprime nunca**: va a `/etc/cloudflared/claude-web.env` (root, 0600)
+y la unidad `cloudflared-claude-web` lo lee con `EnvironmentFile=`. La receta oficial
+(`cloudflared service install <token>`) lo dejaría en el `ps` y en el journal.
+
+⚠ **No visto en vivo con un dominio real**: hace falta el tuyo. Lo que está visto es el
+túnel rápido desde el dev, y todo lo demás está en tests. Los pasos y lo esperado en
+cada uno, en [`docs/pendiente-verificar.md`](docs/pendiente-verificar.md).
+
 #### Y cómo se recupera: el certificado viaja con la flota (2026-09-11)
 
 El límite se quemaba porque el certificado **vivía en el droplet que se destruye**

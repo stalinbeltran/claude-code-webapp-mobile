@@ -1,5 +1,38 @@
 # ⏳ PENDIENTE de verificar: lo que se construyó el 2026-09-10 y NO se ha visto funcionar entero
 
+## ⏳ AÑADIDO el 2026-09-12: el acceso por Cloudflare Tunnel + Access
+
+Construido el 2026-09-12 (`scripts/cloudflare.mjs`, `scripts/acceso.mjs`,
+`tests/cloudflare.test.mjs`) tras la decisión P14. **Visto en vivo:** un túnel rápido
+desde el dev (`cloudflared tunnel --url http://127.0.0.1:8099`) contestó por HTTPS
+válido en 0,38 s (2026-09-12 00:37 UTC). **No visto:** el túnel con nombre propio y
+Access, porque hace falta un dominio del dueño. Lo que hay que ver, en orden:
+
+1. **Los pasos del dueño** (README § «Acceso por Cloudflare», pasos 1-4): dominio en
+   Cloudflare, túnel `claude-web` con public hostname `claude.<dominio>` → HTTP
+   `127.0.0.1:8020`, aplicación de Access con policy Allow para su correo, y las tres
+   variables en el `.env` de la laptop, enviadas al dev y al mini con `llavero enviar`.
+2. **Levantar el túnel en el dev vivo:** `remoto dev entornos aplicar --entorno
+   claude-code-webapp-mobile` y `remoto dev install-service --service claude-web` (o
+   `/use cweb` → `acceso`). Esperado: `[cloudflare] túnel cloudflared-claude-web
+   instalado y arrancado`, `✅ Túnel conectado a Cloudflare`, y la sonda con
+   `✅ Llega por Cloudflare y Access la protege (… 302 …)`. **Si la sonda dice 200, la
+   web está abierta al mundo: parar el túnel y poner la policy.**
+3. **Desde el móvil, sin Tailscale activo:** abrir `https://claude.<dominio>/`, hacer el
+   login de Access, ver las conversaciones, y **«Añadir a pantalla de inicio»** tiene que
+   salir. Abrir la PWA instalada: carga sin login (la sesión de Access dura lo
+   configurado). Escribir un mensaje desde la web y ver que llega al bot.
+4. **Rehacer el dev desde el mini:** el dev nuevo tiene que levantar el mismo túnel solo
+   (el token está en el llavero) y la PWA instalada tiene que abrir a la primera, sin
+   tocar nada. Aquí es donde Tailscale exigía recuperar el nombre; aquí no hay nombre
+   que recuperar.
+5. **Con Tailscale como vuelta atrás:** `CWEB_ACCESO=tailscale` en el llavero,
+   `entornos aplicar` y `acceso` otra vez: tiene que volver a publicar por la tailnet
+   como antes. Si eso funciona, la prueba es reversible de verdad.
+6. **Lo que se sabrá con el tiempo:** si la sesión de Access caducada se explica bien
+   en la app (mensaje «El acceso pide volver a entrar…» y no «Failed to fetch»), y si el
+   flujo de eventos aguanta detrás de Cloudflare (latido cada 30 s).
+
 ## ⏳ AÑADIDO el 2026-09-11 (noche): el certificado que viaja con la flota
 
 Construido el 2026-09-11 (`scripts/certificado.mjs`, `tests/certificado.test.mjs`)

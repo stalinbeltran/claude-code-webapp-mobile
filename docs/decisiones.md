@@ -362,3 +362,40 @@ abre sin escribir nada**, que es justo lo que pedía.
 máquina, y eso es una **R19** aceptada a sabiendas: aquella app es de escritorio y
 de trabajo puntual; ésta es de móvil y de uso diario. El motivo queda escrito aquí
 para que no se lea como un descuido.
+
+## P14 · Tailscale marcado como VÁLIDO, y se prueba Cloudflare Tunnel (2026-09-12)
+
+**Decisión del dueño, con sus palabras:** «el problema es que estamos manteniendo
+tailscale a pesar de los problemas. Cierto que los hemos superado, pero seguro van a
+salir nuevos. Debemos probar una alternativa. Marquemos este punto como válido
+Tailscale, pero vamos a probar otra alternativa. Importante que el app debe ser
+instalable, para poder interactuar con el sistema como se hace desde Telegram (sólo que
+con una vista para los markdown), esa es la única restricción.»
+
+**Qué se marca como válido:** el estado del 2026-09-11 por la noche, tag
+`tailscale-valido-2026-09-11` aquí y en el lanzador. Los cuatro incidentes desde P3
+(nombre `dev-1`, authkey en el journal, `serve` con nombre viejo, límite de Let's
+Encrypt) están cerrados con test; el último, haciendo viajar el certificado con la flota.
+Lo que se cierra ahí es el patrón «rehacer el dev cada día con el mismo nombre», que era
+de donde salían tres de los cuatro.
+
+**Qué se prueba:** Cloudflare Tunnel + Access, y por qué ésta y no otra: es la única
+alternativa que **cambia la ecuación** en vez de mover el problema. Sin puerto abierto
+(el túnel sale del droplet), sin certificado que pedir ni que viajar, sin app en el
+móvil, sin nodo que tenga que recuperar su nombre, y con un token que no caduca. Las
+descartadas: IP reservada + dominio + Caddy en la IP pública (mismo certificado con el
+mismo límite, y obliga a escribir autenticación delante de una shell con
+`bypassPermissions`), ngrok (interstitial en el plan gratuito, que rompe la PWA), y
+WireGuard/headscale (más trabajo por lo mismo).
+
+**Lo que se acepta a sabiendas:** el tráfico pasa en claro por el borde de Cloudflare,
+y Access es la única barrera. Y un dominio que hay que pagar.
+
+**Cómo conviven:** `CWEB_ACCESO` decide, y sin él el dato (hay token de túnel →
+cloudflare). `services/claude-web.json` del lanzador llama a `scripts/acceso.mjs`, que
+delega en los scripts de Tailscale o levanta el túnel. La vuelta atrás es una variable.
+
+**Estado:** el túnel rápido está visto en vivo desde el dev (2026-09-12 00:37 UTC,
+HTTPS válido en 0,38 s). El túnel con nombre y Access **no**, porque hace falta el
+dominio del dueño: `docs/pendiente-verificar.md` tiene los pasos.
+

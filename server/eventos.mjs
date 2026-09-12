@@ -68,6 +68,17 @@ export function crearVigilante(raiz) {
 
   timer = setInterval(comprobar, SONDEO_MS);
   timer.unref();
+  // ⚠ Un latido cada 30 s. Un proxy en el camino (Cloudflare lo es desde el
+  // 2026-09-12) corta las conexiones que llevan un rato sin decir nada, y un
+  // flujo de eventos sin cambios es exactamente eso. Un comentario SSE (`: …`)
+  // no dispara nada en el cliente; sólo mantiene viva la conexión.
+  const LATIDO_MS = 30_000;
+  const latido = setInterval(() => {
+    for (const res of clientes) {
+      try { res.write(': latido\n\n'); } catch { clientes.delete(res); }
+    }
+  }, LATIDO_MS);
+  latido.unref();
   try {
     // `recursive` no hace falta: todos los ficheros cuelgan de `mensajes/`. Y si
     // el directorio aún no existe, se vigila el padre — el primer mensaje lo crea.
@@ -97,6 +108,7 @@ export function crearVigilante(raiz) {
     get clientes() { return clientes.size; },
     parar() {
       clearInterval(timer);
+      clearInterval(latido);
       watcher?.close();
       // ⚠ Cerrar las conexiones abiertas: si no, `server.close()` no termina
       // nunca porque quedan sockets vivos, y el proceso no sale.

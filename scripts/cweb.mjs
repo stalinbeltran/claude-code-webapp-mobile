@@ -3,7 +3,7 @@
 // y existe por la regla 4 de escritura del coordinador: **un comando nuevo no
 // está terminado hasta que se puede invocar desde el móvil**.
 //
-// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log|tailscale|cert [exportar]]
+// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log|acceso|tailscale|cert [exportar]]
 //
 // ⚠ Este script NO decide dónde escucha el servidor: eso está en
 // `server/index.mjs` y es 127.0.0.1 siempre. Aquí sólo se enciende y se apaga.
@@ -16,6 +16,8 @@ import { homedir } from 'node:os';
 import { avisoDeDeriva, avisoDeServeHuerfano, esquemaPublicado, publicacion,
          publicacionSobrante, serveHuerfano } from './nodo.mjs';
 import { conEnvDelRepo, estado as estadoCertificado, exportar as exportarCertificado } from './certificado.mjs';
+import { estadoDelTunel, hostnameDelTunel, modoDeAcceso, ordenDeProbarTunel, urlDelTunel,
+         veredictoDeSonda } from './cloudflare.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
@@ -24,6 +26,9 @@ const UNIDAD = 'claude-web';
 const ENV = conEnvDelRepo(RAIZ);
 const PUERTO = ENV.CWEB_PORT ?? '8020';
 const PUB = publicacion(ENV);
+// Por dónde se llega: tailscale o cloudflare. Lo decide `CWEB_ACCESO` o el dato
+// (hay token de túnel). Ver `scripts/cloudflare.mjs` y `scripts/acceso.mjs`.
+const MODO = modoDeAcceso(ENV);
 /** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
  *  porque es el que quedó escrito en la PWA instalada en el móvil. */
 const NOMBRE = ENV.CWEB_HOSTNAME ?? 'dev';
@@ -100,6 +105,7 @@ function estado() {
   const hayDatos = existsSync(join(DATOS, 'mensajes'));
   console.log(`web de lectura: ${viva ? '🟢 corriendo' : '🔴 parada'}   (unidad ${UNIDAD})`);
   console.log(`puerto        : ${PUERTO}, sólo en 127.0.0.1`);
+  console.log(`acceso        : ${MODO}  (CWEB_ACCESO, o el dato: hay token de túnel → cloudflare)`);
   console.log(`log que lee   : ${DATOS}${hayDatos ? '' : '  ⚠ todavía no tiene mensajes/'}`);
   if (viva) {
     const n = esperaAQueConteste();
@@ -119,6 +125,19 @@ function nombreDelNodo() {
   try { return JSON.parse(r).Self?.DNSName?.replace(/\.$/, '') || null; } catch { return null; }
 }
 
+/** La dirección por Cloudflare: el nombre público del túnel, SONDEADO. */
+function urlCloudflare() {
+  const host = hostnameDelTunel(ENV);
+  if (!host) {
+    return 'Desde el móvil: todavía NO se puede llegar por Cloudflare.\n' +
+      '  Falta CF_HOSTNAME (en el llavero, CWEB_CF_HOSTNAME): el "public hostname" del túnel.';
+  }
+  const est = estadoDelTunel(sh);
+  const v = veredictoDeSonda(sh(ordenDeProbarTunel(host)).trim());
+  return `Desde el móvil (sin ninguna app, con tu login de Access):\n  ${urlDelTunel(host)}\n\n` +
+    `túnel: ${est.activa ? 'activo' : 'PARADO'}, ${est.conectado ? 'conectado' : 'sin conexión registrada'}\n${v.texto}`;
+}
+
 /**
  * La dirección desde la que se llega, LEÍDA del estado real de `tailscale serve`.
  *
@@ -132,6 +151,7 @@ function nombreDelNodo() {
  * supone. Aquí es literalmente lo que `tailscale serve status` imprime.
  */
 function url() {
+  if (MODO === 'cloudflare') return urlCloudflare();
   const s = sh('tailscale serve status 2>/dev/null');
   const dnsNodo = nombreDelNodo();
 
@@ -202,6 +222,13 @@ switch (orden) {
   case 'arrancar': console.log(sh(`sudo -n systemctl start ${UNIDAD}`) || '▶️ arrancada'); estado(); break;
   case 'parar': console.log(sh(`sudo -n systemctl stop ${UNIDAD}`) || '⏹️ parada'); break;
   case 'log': console.log(sh(`journalctl -u ${UNIDAD} -n 40 -o cat --no-pager`)); break;
+  case 'acceso': {
+    // Relanza el acceso que toque (Tailscale o Cloudflare) DESDE TELEGRAM. Es el
+    // camino genérico; `tailscale` se conserva para el que ya lo tenga en los dedos.
+    const r = sh(`node ${join(RAIZ, 'scripts', 'acceso.mjs')} unir 2>&1`);
+    console.log(r || '(sin salida)');
+    break;
+  }
   case 'tailscale': {
     // Relanza el configurador. Hace falta poder hacerlo DESDE TELEGRAM: la
     // primera vez suele faltar un permiso en la tailnet, y quien lo da está en
@@ -248,6 +275,6 @@ switch (orden) {
   default:
     // ⚠ El último caso SE NIEGA, nunca es una acción por defecto: así es como se
     // acaba corriendo lo que nadie pidió (medido el 2026-09-08 en otro lanzador).
-    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · tailscale · cert`);
+    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · acceso · tailscale · cert`);
     process.exit(2);
 }
