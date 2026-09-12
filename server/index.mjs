@@ -7,14 +7,39 @@
 // nada**: en la fase 2 es sólo lectura. El contrato del formato vive donde su
 // productor, en `telegram-coordinator/docs/log-de-mensajes.md`.
 //
-// ⚠⚠ ESCUCHA SÓLO EN 127.0.0.1, Y ESO ES UN FRENO, NO UNA PREFERENCIA.
-// El bot usa long polling precisamente para no abrir puertos. Quien alcance este
-// puerto llega al mismo sitio que un mensaje de Telegram —una máquina donde
-// `claude` corre con `bypassPermissions`— y **la allowlist del bot no lo cubre**.
-// Desde fuera se entra por `tailscale serve`, que hace de proxy contra este
-// mismo `127.0.0.1` y pone la identidad (decisiones P2 y P3).
-// Hay un test que falla si alguien lo cambia: una invariante que importa es un
-// test, no una frase (R14).
+// ⚠⚠ NUNCA ATA UN COMODÍN, Y ESO ES EL FRENO. Quien alcance este puerto llega al
+// mismo sitio que un mensaje de Telegram —una máquina donde `claude` corre con
+// `bypassPermissions`— y **la allowlist del bot no lo cubre**. Así que se ata a
+// direcciones nombradas y comprobadas, nunca a `0.0.0.0` ni a `::`, que atarían
+// también la IP **pública** del droplet. Hay tests que fallan si alguien lo
+// cambia: una invariante que importa es un test, no una frase (R14).
+//
+// ⚠⚠ Y DESDE EL 2026-09-12 ATA TAMBIÉN LA IP DE LA TAILNET, no sólo loopback.
+// El motivo está medido ese día: `tailscale serve` enruta **por la cabecera
+// `Host`**, así que la app se veía por su nombre y **por IP daba 404**:
+//
+//     http://100.79.201.53:8080/          -> 404 page not found
+//     http://dev.tail376e31.ts.net:8080/  -> 200
+//
+// O sea que llegar dependía de que el móvil resolviera MagicDNS, y cuando no lo
+// hacía **no había ninguna dirección que funcionara** — ni por nombre ni por IP.
+// Atándose a la IP de la tailnet hay una dirección que no depende del DNS de
+// nadie, que es lo que el dueño pidió.
+//
+// ⚠ Y NO afloja el freno, que es lo primero que hay que comprobar al leer esto:
+//   · la 100.x es de la tailnet (CGNAT, 100.64.0.0/10) y **no se enruta desde
+//     Internet**; el conjunto de quien puede llegar es el mismo que ya podía por
+//     `tailscale serve`, que lleva publicando en esa misma IP desde el principio.
+//   · `tailscale` mete su propio `-A ts-input -i tailscale0 -j ACCEPT`, así que
+//     esto no necesita abrir nada en `ufw` — y no se abre.
+//   · lo único que se pierde son las cabeceras de identidad que pone `serve`, y
+//     **esta app no las lee** (comprobado el 2026-09-12: no aparecen en
+//     `server/` ni en `web/`).
+// Lo que sigue prohibido, y ahora con test, es el comodín.
+//
+// ⚠ Loopback se ata SIEMPRE, además: de ahí cuelgan la sonda de `cweb estado` y
+// el túnel SSH de emergencia. Perder eso por ganar la IP sería cambiar un
+// problema por otro.
 //
 // ⚠ Y NO deduce dónde está el log: se lo tienen que decir con `DATA_DIR` (R4).
 // Que el coordinador esté «al lado» es una coincidencia del sistema de ficheros,
@@ -24,6 +49,7 @@
 // falla antes de empezar; fallar a mitad no es una opción).
 
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +59,71 @@ import { crearVigilante } from './eventos.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
+
+/**
+ * ¿Es una dirección a la que este servidor puede atarse?
+ *
+ * ⚠ El freno de verdad, y por eso es una lista de lo que SÍ vale y no de lo que
+ * no: una lista negra deja pasar lo que nadie pensó. Loopback (de ahí cuelgan la
+ * sonda y el túnel SSH) y la tailnet (CGNAT 100.64.0.0/10, no enrutable desde
+ * Internet). Todo lo demás se rechaza, empezando por los comodines.
+ */
+/**
+ * La IP v4 de esta máquina en la tailnet, o null.
+ *
+ * ⚠ Se PREGUNTA a `tailscale`, no se deduce de las interfaces: la respuesta de
+ * `tailscale ip -4` es el dato, y leer `ip addr` sería adivinar cuál de las
+ * direcciones de la máquina es la buena. Si no hay tailscale, o tarda, no es un
+ * fallo: es que todavía no hay (ver el reintento en `arrancar`).
+ */
+export function ipDeTailscale() {
+  try {
+    const out = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8', timeout: 5000 });
+    const ip = out.trim().split('\n')[0].trim();
+    return ip || null;
+  } catch { return null; }
+}
+
+export function bindAceptable(dir) {
+  const d = String(dir ?? '').trim();
+  if (d === '127.0.0.1' || d === '::1') return { ok: true, clase: 'loopback' };
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(d)) {
+    return { ok: true, clase: 'tailnet' };
+  }
+  if (d === '' || d === '0.0.0.0' || d === '::' || d === '*') {
+    return { ok: false, motivo: 'un comodín ataría también la IP PÚBLICA del droplet' };
+  }
+  return { ok: false, motivo: 'no es loopback ni de la tailnet (100.64.0.0/10)' };
+}
+
+/**
+ * A qué direcciones se ata, dado el entorno y la IP que tenga la tailnet.
+ *
+ * `CWEB_BIND` (coma-separado) manda; si no, loopback + la de la tailnet.
+ *
+ * ⚠ Loopback NO se puede quitar ni con `CWEB_BIND`: es de donde cuelgan la sonda
+ * de `cweb estado` y el túnel SSH, o sea la forma de mirar esto cuando lo demás
+ * falla. Una salida de emergencia que se pueda desconfigurar no es una salida.
+ *
+ * ⚠ Y lo rechazado se DEVUELVE, no se traga: atarse a menos de lo que te
+ * pidieron, en silencio, es la clase de fallo que se descubre desde el móvil.
+ *
+ * @returns {{escuchar: string[], rechazadas: {dir: string, motivo: string}[]}}
+ */
+export function direccionesDeEscucha({ env = {}, ipTailnet = null } = {}) {
+  const pedidas = String(env.CWEB_BIND ?? '').split(',').map((d) => d.trim()).filter(Boolean);
+  const candidatas = pedidas.length ? pedidas : [HOST, ...(ipTailnet ? [ipTailnet] : [])];
+
+  const escuchar = [HOST];
+  const rechazadas = [];
+  for (const d of candidatas) {
+    if (escuchar.includes(d)) continue;
+    const v = bindAceptable(d);
+    if (v.ok) escuchar.push(d);
+    else rechazadas.push({ dir: d, motivo: v.motivo });
+  }
+  return { escuchar, rechazadas };
+}
 
 /** La raíz de los estáticos, deducida de dónde vive este fichero. Aquí SÍ vale
  *  deducir: `web/` viaja en este mismo repo, así que no es un acoplamiento entre
@@ -102,8 +193,7 @@ function json(res, code, cuerpo) {
  * `crearBot()` en el coordinador: así el camino real se puede probar sin ocupar
  * un puerto y sin depender de que haya un coordinador vivo.
  */
-export function crearServidor(raiz) {
-  const vigilante = crearVigilante(raiz);
+export function crearServidor(raiz, vigilante = crearVigilante(raiz)) {
   const server = createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
 
@@ -233,19 +323,59 @@ export function arrancar() {
     console.error(`❌ ${r.error}`);
     process.exit(2);
   }
-  const server = crearServidor(r.raiz);
-  server.listen(PUERTO, HOST, () => {
-    console.log(`🌐 Web de lectura en http://${HOST}:${PUERTO}  (log: ${r.raiz})`);
-    if (r.porDefecto) console.log('   (nadie me dijo DATA_DIR: uso el sitio de siempre)');
-    console.log('   Sólo escucha en loopback: desde fuera se entra por `tailscale serve`.');
-  });
-  // Un fallo de red no puede tumbar el proceso sin decir por qué.
-  server.on('error', (e) => {
-    console.error(`❌ El servidor falló: ${e.message}`);
-    if (e.code === 'EADDRINUSE') console.error(`   El puerto ${PUERTO} ya está ocupado. Prueba CWEB_PORT=<otro>.`);
-    process.exit(1);
-  });
-  return server;
+  // Un vigilante para TODOS los listeners: mira el mismo disco, y dos vigilantes
+  // serían dos watchers y dos sondeos sobre lo mismo.
+  const vigilante = crearVigilante(r.raiz);
+  const servidores = [];
+
+  /** Ata una dirección. Nunca tumba el proceso: con loopback vivo la app sirve. */
+  const atar = (host, obligatoria) => {
+    const server = crearServidor(r.raiz, vigilante);
+    server.on('error', (e) => {
+      console.error(`❌ No pude atar ${host}:${PUERTO}: ${e.message}`);
+      if (e.code === 'EADDRINUSE') console.error(`   Ese puerto ya está ocupado. Prueba CWEB_PORT=<otro>.`);
+      // ⚠ Sólo loopback es motivo para rendirse: sin él no hay ni sonda ni túnel
+      // SSH, o sea ninguna forma de mirar esto. Que falle la de la tailnet deja
+      // la app EN PIE y se dice; tumbarla sería cambiar «no llego desde el móvil»
+      // por «no hay app».
+      if (obligatoria) process.exit(1);
+    });
+    server.listen(PUERTO, host, () => {
+      console.log(`🌐 Web de lectura en http://${host}:${PUERTO}  (log: ${r.raiz})`);
+    });
+    servidores.push(server);
+    return server;
+  };
+
+  const { escuchar, rechazadas } = direccionesDeEscucha({ env: process.env, ipTailnet: ipDeTailscale() });
+  for (const { dir, motivo } of rechazadas) {
+    console.error(`⚠ NO me ato a ${dir}: ${motivo}.`);
+  }
+  for (const host of escuchar) atar(host, host === HOST);
+
+  if (r.porDefecto) console.log('   (nadie me dijo DATA_DIR: uso el sitio de siempre)');
+  if (escuchar.length === 1) {
+    // ⚠⚠ Y SE REINTENTA, porque esto es una CARRERA de arranque y no un fallo.
+    // La unidad puede levantarse antes que `tailscaled`, y entonces no hay IP de
+    // tailnet que atar — la app quedaría sólo en loopback hasta que alguien la
+    // reiniciara a mano, que es justo el tipo de cosa que nadie hace en un dev
+    // recién nacido. Se mira cada 10 s durante 5 min y se ata en cuanto aparece.
+    let quedan = 30;
+    const espera = setInterval(() => {
+      const ip = ipDeTailscale();
+      if (ip && bindAceptable(ip).ok) {
+        clearInterval(espera);
+        console.log(`   (tailscale tardó en levantar: me ato también a ${ip})`);
+        atar(ip, false);
+      } else if (--quedan <= 0) {
+        clearInterval(espera);
+        console.log('   Sin IP de tailnet tras 5 min: sólo loopback. Desde fuera, `tailscale serve` o un túnel SSH.');
+      }
+    }, 10_000);
+    espera.unref();
+  }
+
+  return servidores[0];
 }
 
 // Sólo arranca si se ejecuta directamente, nunca al importarlo desde un test.

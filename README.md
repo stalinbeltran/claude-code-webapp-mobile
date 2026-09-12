@@ -64,8 +64,11 @@ final. Lanzado desde Telegram, eso llega como mensaje sin que nadie haga nada:
 ```
   Servicio 'claude-web' corriendo. Estado y logs:
   python scripts/do_droplet.py service logs claude-web
-  Ábrelo:  http://dev.tail376e31.ts.net:8080/
+  Ábrelo:  http://100.79.201.53:8020/
 ```
+
+⚠ **Es una IP, y desde el 2026-09-12 a propósito.** Ver
+[§ Por qué la dirección es una IP](#por-qué-la-dirección-es-una-ip-y-no-un-nombre-2026-09-12).
 
 **Y si no llega, se pide** — que es lo normal cuando algo del arranque falló:
 
@@ -75,6 +78,72 @@ tú  → url
 bot ← Desde el móvil (con Tailscale activo):
         http://dev.tail376e31.ts.net:8080/
 ```
+
+#### Por qué la dirección es una IP y no un nombre (2026-09-12)
+
+**Porque el nombre no bastaba, y medido así se ve en una línea:**
+
+```
+http://100.79.201.53:8080/          → 404 page not found
+http://dev.tail376e31.ts.net:8080/  → 200
+```
+
+`tailscale serve` enruta **por la cabecera `Host`**. Por IP no hay ningún
+webserver configurado, así que contesta 404. O sea que llegar dependía de que el
+móvil resolviera MagicDNS — y cuando no lo hacía **no había ninguna dirección que
+funcionara**: ni el nombre (no resuelve) ni la IP (404).
+
+**El arreglo es que la app se ate ella misma a la IP de la tailnet**, además de a
+loopback. Así hay una dirección que no depende del DNS de nadie, ni de `serve`, ni
+de un certificado.
+
+```
+$ ss -lntp | grep 8020
+LISTEN  127.0.0.1:8020      users:(("node",...))
+LISTEN  100.79.201.53:8020  users:(("node",...))
+
+$ curl -o /dev/null -w '%{http_code}' http://100.79.201.53:8020/
+200
+```
+
+⚠⚠ **Y esto NO afloja el freno de «sólo loopback», que es lo primero que hay que
+comprobar al leerlo:**
+
+| | |
+|---|---|
+| ¿se abre a Internet? | **No.** La 100.x es CGNAT de la tailnet y no se enruta desde fuera. Comprobado: por la IP pública del droplet, sin respuesta |
+| ¿cambia quién puede llegar? | **No.** `tailscale serve` ya publicaba en esa misma IP desde el principio; es el mismo conjunto |
+| ¿hay que abrir algo en `ufw`? | **No.** `tailscale` mete su propio `-A ts-input -i tailscale0 -j ACCEPT` |
+| ¿se pierde algo? | Las cabeceras de identidad que pone `serve` — y **esta app no las lee** (comprobado) |
+
+**El freno se mueve, no desaparece**: ya no es «sólo loopback», es **nunca un
+comodín y nunca una dirección pública**. `bindAceptable()` acepta por lista
+blanca (loopback o `100.64.0.0/10`) y rechaza todo lo demás, empezando por
+`0.0.0.0` y `::`, que atarían también la IP pública del droplet.
+
+Tres decisiones más, con test:
+
+- **Loopback se ata SIEMPRE**, ni siquiera `CWEB_BIND` lo puede quitar: de ahí
+  cuelgan la sonda de `cweb estado` y el túnel SSH de emergencia. Una salida de
+  emergencia que se pueda desconfigurar no es una salida.
+- **Lo rechazado se dice**, no se traga. Atarse a menos de lo que te pidieron y
+  callarlo es la clase de fallo que se descubre desde el móvil y se atribuye a la
+  red.
+- **Si `tailscaled` aún no ha levantado, se reintenta** cada 10 s durante 5 min.
+  La unidad puede arrancar antes que él, y entonces no hay IP que atar; sin
+  reintento la app quedaría sólo en loopback hasta que alguien la reiniciara a
+  mano — que es justo lo que nadie hace en un dev recién nacido. Y **que falle esa
+  atadura no tumba la app**: sólo loopback es motivo para rendirse.
+
+⚠ **El nombre sigue funcionando** (`tailscale serve` no se ha tocado), y `cweb url`
+lo usa de reserva: prueba primero la IP —**comprobando que contesta 200**, no
+componiéndola— y si no responde cae al nombre, diciendo que ése necesita MagicDNS.
+
+7 tests en `tests/servidor.test.mjs`, y uno de ellos barre **todas** las
+combinaciones de `CWEB_BIND` para comprobar que ninguna consigue atar algo que no
+sea loopback o tailnet. ⚠ Hicieron falta porque el test que ya había —que conecta
+desde una IP no-loopback de la máquina— **ata su propio servidor a `127.0.0.1`**,
+así que desde hoy prueba menos de lo que parece: no ve el camino real.
 
 #### ⚠⚠ Por qué hay DOS formas de preguntar lo mismo (2026-09-12)
 

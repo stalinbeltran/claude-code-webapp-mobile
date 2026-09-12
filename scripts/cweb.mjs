@@ -154,9 +154,44 @@ function estadoDelServe() {
   };
 }
 
+/**
+ * La dirección DIRECTA: `http://<ip-de-la-tailnet>:<puerto>/`, o null.
+ *
+ * ⚠⚠ Es la primera que se prueba desde el 2026-09-12, y el motivo está medido:
+ * `tailscale serve` enruta por la cabecera `Host`, así que la app se veía por su
+ * nombre y **por IP daba 404**. Llegar dependía de que el móvil resolviera
+ * MagicDNS; cuando no lo hacía, no había NINGUNA dirección que funcionara. Una
+ * IP no depende del DNS de nadie.
+ *
+ * ⚠ Y NO se compone: se COMPRUEBA. Que el servidor diga que se ató no prueba que
+ * se llegue —hace falta además que el paquete entre por `tailscale0`—, y dar una
+ * dirección sin probarla es lo que este fichero lleva tres fallos evitando. Si no
+ * contesta 200, esto devuelve null y se cae al camino del nombre.
+ */
+function direccionDirecta() {
+  const ip = (sh('tailscale ip -4 2>/dev/null') || '').split('\n')[0].trim();
+  if (!ip) return null;
+  const url = `http://${ip}:${PUERTO}/`;
+  const code = sh(`curl -s -o /dev/null -w '%{http_code}' --max-time 4 ${url}api/salud`).trim();
+  return code === '200' ? url : null;
+}
+
 /** La dirección y sus avisos, sea cual sea el modo de acceso. Una sola forma. */
 function direccionActual() {
-  if (MODO !== 'cloudflare') return resolverDireccion(estadoDelServe());
+  if (MODO !== 'cloudflare') {
+    const directa = direccionDirecta();
+    if (directa) return { direccion: directa, avisos: [], motivo: '' };
+    // Sin directa se cae al nombre: sigue valiendo si el móvil resuelve MagicDNS,
+    // y su fallo explica mejor qué pasa (nodo fuera, serve sin poner, etc.).
+    const r = resolverDireccion(estadoDelServe());
+    if (r.direccion) {
+      r.avisos = [...r.avisos,
+        '⚠ Esta dirección va por NOMBRE (`tailscale serve`), así que necesita que ' +
+        'tu móvil resuelva MagicDNS. La directa por IP no contestó: si el nombre ' +
+        'tampoco te funciona, mira `cweb estado`.'];
+    }
+    return r;
+  }
   const host = hostnameDelTunel(ENV);
   if (!host) {
     return { direccion: null, avisos: [],
@@ -181,7 +216,7 @@ function direccionActual() {
  */
 function url() {
   if (MODO === 'cloudflare') return urlCloudflare();
-  const { direccion, avisos, motivo } = resolverDireccion(estadoDelServe());
+  const { direccion, avisos, motivo } = direccionActual();
 
   if (!direccion) {
     const comoSeArregla = /no hay ningún serve/.test(motivo)

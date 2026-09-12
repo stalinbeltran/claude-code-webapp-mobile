@@ -31,7 +31,8 @@ import { fileURLToPath } from 'node:url';
 const RAIZ = dirname(dirname(fileURLToPath(import.meta.url)));
 const FIXTURE = join(RAIZ, 'tests', 'fixtures');
 
-const { HOST, crearServidor, raizDatos } = await import('../server/index.mjs');
+const { HOST, crearServidor, raizDatos, bindAceptable, direccionesDeEscucha } =
+  await import('../server/index.mjs');
 
 /** Levanta el servidor en un puerto libre y devuelve cómo pararlo. */
 function levantar(raiz = FIXTURE) {
@@ -357,4 +358,95 @@ test('el fichero se escribe con rename: el coordinador nunca ve uno a medias', a
   const fuente = readFileSync(new URL('../server/datos.mjs', import.meta.url), 'utf8');
   assert.match(fuente, /escribiendo[\s\S]{0,200}renameSync/,
     'se escribe en un temporal y se renombra');
+});
+
+// ---------------------------------------------------------------------------
+// 1 bis · DÓNDE SE ATA, ahora que se ata a MÁS de una dirección (2026-09-12)
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ El test de arriba sigue valiendo, pero desde hoy prueba MENOS de lo que
+// parece: ata su propio servidor a `HOST` y comprueba que desde otra IP no se
+// llega. El camino real ya no hace eso — ata loopback **y la IP de la tailnet**,
+// a propósito, porque `tailscale serve` enruta por la cabecera `Host` y por IP
+// daba 404 (medido ese día: `http://100.79.201.53:8080/` → 404 page not found).
+//
+// O sea que el freno se mueve: ya no es «sólo loopback», es **nunca un comodín y
+// nunca una dirección pública**. Y eso hay que probarlo donde se decide, que es
+// `bindAceptable`/`direccionesDeEscucha` — si no, quedaría una frase vigilando
+// un cambio que el test anterior no puede ver.
+
+test('⚠⚠ ningún comodín, en ninguna de sus formas', () => {
+  for (const comodin of ['0.0.0.0', '::', '*', '', '   ']) {
+    const v = bindAceptable(comodin);
+    assert.equal(v.ok, false, `«${comodin}» ataría también la IP pública`);
+    assert.match(v.motivo, /PÚBLICA/, 'y el motivo dice lo que cuesta, no sólo que no');
+  }
+});
+
+test('la tailnet vale, y sus bordes están donde deben (CGNAT 100.64.0.0/10)', () => {
+  for (const dentro of ['100.64.0.0', '100.79.201.53', '100.127.255.255']) {
+    assert.equal(bindAceptable(dentro).ok, true, `${dentro} es tailnet`);
+    assert.equal(bindAceptable(dentro).clase, 'tailnet');
+  }
+  for (const fuera of ['100.63.255.255', '100.128.0.1', '10.0.0.1', '192.168.1.5']) {
+    assert.equal(bindAceptable(fuera).ok, false, `${fuera} NO es tailnet y no puede colarse`);
+  }
+  assert.equal(bindAceptable('127.0.0.1').clase, 'loopback');
+  assert.equal(bindAceptable('::1').clase, 'loopback');
+});
+
+test('⚠⚠ las IPs PÚBLICAS DE ESTA MÁQUINA se rechazan (no es un caso hipotético)', () => {
+  // Se leen de verdad, como hace el test de arriba: lo que hay que impedir es
+  // atarse a la IP por la que este droplet se ve desde Internet.
+  const publicas = Object.values(networkInterfaces()).flat()
+    .filter((i) => i && !i.internal && !/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address))
+    .map((i) => i.address);
+  for (const ip of publicas) {
+    assert.equal(bindAceptable(ip).ok, false,
+      `${ip} es una dirección de esta máquina que NO es de la tailnet: atarse ahí la abre`);
+  }
+});
+
+test('por defecto: loopback y la de la tailnet; sin tailnet, sólo loopback', () => {
+  assert.deepEqual(direccionesDeEscucha({ env: {}, ipTailnet: '100.79.201.53' }).escuchar,
+    ['127.0.0.1', '100.79.201.53']);
+  assert.deepEqual(direccionesDeEscucha({ env: {}, ipTailnet: null }).escuchar, ['127.0.0.1']);
+});
+
+test('⚠ loopback NO se puede quitar, ni con CWEB_BIND', () => {
+  // De ahí cuelgan la sonda de `cweb estado` y el túnel SSH de emergencia. Una
+  // salida de emergencia que se pueda desconfigurar no es una salida.
+  const r = direccionesDeEscucha({ env: { CWEB_BIND: '100.79.201.53' }, ipTailnet: null });
+  assert.ok(r.escuchar.includes('127.0.0.1'));
+  assert.ok(r.escuchar.includes('100.79.201.53'));
+});
+
+test('⚠ lo rechazado se DEVUELVE, no se traga en silencio', () => {
+  // Atarse a menos de lo que te pidieron, y callarlo, es la clase de fallo que
+  // se descubre desde el móvil y se atribuye a la red.
+  const r = direccionesDeEscucha({ env: { CWEB_BIND: '0.0.0.0,100.79.201.53' }, ipTailnet: null });
+  assert.deepEqual(r.escuchar, ['127.0.0.1', '100.79.201.53']);
+  assert.equal(r.rechazadas.length, 1);
+  assert.equal(r.rechazadas[0].dir, '0.0.0.0');
+  assert.ok(r.rechazadas[0].motivo);
+});
+
+test('⚠⚠ R14: NINGUNA entrada consigue que se ate a algo que no sea loopback o tailnet', () => {
+  // El barrido. Es la invariante que de verdad importa ahora, y la que el test
+  // del principio ya no puede ver.
+  const intentos = [
+    {}, { CWEB_BIND: '0.0.0.0' }, { CWEB_BIND: '::' }, { CWEB_BIND: '' },
+    { CWEB_BIND: '143.110.1.2' }, { CWEB_BIND: '0.0.0.0,::,143.110.1.2' },
+    { CWEB_BIND: '   ,  ,' }, { CWEB_BIND: 'localhost' },
+  ];
+  for (const env of intentos) {
+    for (const ip of [null, '100.79.201.53', '0.0.0.0']) {
+      const { escuchar } = direccionesDeEscucha({ env, ipTailnet: ip });
+      for (const d of escuchar) {
+        assert.equal(bindAceptable(d).ok, true,
+          `con env=${JSON.stringify(env)} e ip=${ip} se ataría a ${d}`);
+      }
+      assert.ok(escuchar.includes('127.0.0.1'), 'y loopback siempre está');
+    }
+  }
 });
