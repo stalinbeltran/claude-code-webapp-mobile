@@ -649,3 +649,99 @@ export function leerEnv(texto) {
   }
   return out;
 }
+
+
+// ---------------------------------------------------------------------------
+// LA DIRECCIÓN, separada de su explicación.
+// ---------------------------------------------------------------------------
+//
+// ⚠⚠ POR QUÉ ESTO EXISTE, medido el 2026-09-12. `cweb url` devolvía UN TEXTO que
+// mezclaba el dato («la dirección es ésta») con su explicación («…y además sobra
+// una puerta publicada, quítala con este comando»). Eso vale para un humano en
+// Telegram y NO vale para el lanzador, que consume lo mismo por un contrato
+// estrecho: *la última línea no vacía que contenga `://`*
+// (`do_droplet.py:2591`). Reproducido ejecutando:
+//
+//     ULTIMA LINEA : sudo -n tailscale serve --bg --http=8080 http://127.0.0.1:8020
+//     ¿tiene ://?  : true
+//
+// O sea que en cuanto el `serve` quedaba en un estado raro, `launch` anunciaba
+// **una orden de shell como si fuera tu link**. Y lo hacía con total confianza,
+// que es la forma cara de fallar: abres eso desde el móvil, no carga, y concluyes
+// que la app está rota — cuando lo único roto era el mensajero.
+//
+// La regla que se aplica es la R5: entre dos piezas, la interfaz se declara
+// ESTRECHA y explícita. El dato y la prosa se separan aquí, y cada consumidor
+// coge lo suyo: Telegram el texto, el lanzador la línea.
+
+/**
+ * ¿Esto es una dirección, y no una frase que contiene una?
+ *
+ * ⚠ Es el freno del contrato, y por eso es una comprobación de forma completa
+ * (`^…$`) y no un `includes('://')`: lo que distingue una dirección de la orden
+ * de arriba es justamente que la orden tiene espacios. Un `includes` no puede
+ * ver esa diferencia, y es exactamente el que falló.
+ */
+export function esDireccion(s) {
+  return typeof s === 'string' && /^https?:\/\/[^\s]+$/.test(s);
+}
+
+/**
+ * La dirección publicada por la tailnet y lo que haya que avisar, a partir del
+ * estado YA LEÍDO. Pura: no ejecuta nada, así que se puede probar entera.
+ *
+ * @returns {{direccion: string|null, avisos: string[], motivo: string}}
+ *   · `direccion` es SIEMPRE una dirección suelta o `null`. Nunca una frase.
+ *   · `avisos` son los textos largos que explican; pueden acompañar a una
+ *     dirección buena (el nodo sirve, y además hay algo que mirar).
+ *   · `motivo` es UNA línea, y sólo cuando no hay dirección: es lo que el
+ *     lanzador enseña como pista.
+ *
+ * ⚠ Que haya avisos NO quita la dirección. Son cosas distintas y mezclarlas fue
+ * el error: con una puerta de más publicada la web se ve perfectamente por la
+ * buena, así que negar el link ahí sería dejar al dueño sin app por un aviso.
+ */
+export function resolverDireccion({
+  dnsNodo = null, serve = null, serveTexto = '', pub = publicacion(),
+  nombrePedido = null, puertoWeb = '8020', dentroDeLaTailnet = false,
+} = {}) {
+  const { propios, huerfanos, sabe } = serveHuerfano(dnsNodo, serve);
+  const huerfano = avisoDeServeHuerfano(dnsNodo, serve, pub, puertoWeb);
+
+  // Todo lo publicado es de un nombre que este nodo ya no tiene: no hay ninguna
+  // dirección buena que dar, y dar la muerta «porque es lo que dice el status»
+  // es el fallo que costó la app entera el 2026-09-10.
+  if (sabe && huerfanos.length && !propios.length) {
+    return { direccion: null, avisos: [huerfano],
+      motivo: 'el serve sólo publica nombres que este nodo ya no tiene' };
+  }
+
+  const candidata = sabe && propios.length
+    ? `${esquemaPublicado(serve, (String(propios[0]).match(/:(\d+)$/) || [])[1] || '') ?? pub.esquema}://${propios[0]}`
+    : (String(serveTexto).match(/https?:\/\/\S+/) || [])[0];
+
+  // ⚠ El freno, y va aquí y no en quien llama: si lo que salió no tiene forma de
+  // dirección, NO es una dirección, venga de donde venga. Un consumidor que se
+  // olvide de comprobarlo no puede hacer daño.
+  if (!esDireccion(candidata)) {
+    return { direccion: null, avisos: huerfano ? [huerfano] : [],
+      motivo: dentroDeLaTailnet
+        ? 'el nodo está en la tailnet, pero no hay ningún serve puesto'
+        : 'este server todavía no está en la tailnet' };
+  }
+
+  const avisos = [];
+  const deriva = nombrePedido ? avisoDeDeriva(nombrePedido, dnsNodo, pub) : '';
+  if (deriva) avisos.push(deriva);
+  if (huerfano) avisos.push(huerfano);
+
+  const { sobran } = publicacionSobrante(dnsNodo, serve, pub);
+  if (sobran.length) {
+    avisos.push(`⚠ Además sobra publicado: ${sobran.join(', ')}, y lo declarado es ` +
+      `${pub.bandera}. Esa puerta de más es la que deja al móvil esperando un ` +
+      `certificado. Se quita con:\n  sudo -n tailscale serve reset\n` +
+      `  node scripts/tailscale-serve.mjs`);
+  }
+
+  return { direccion: `${candidata.replace(/\/$/, '')}/`, avisos, motivo: '' };
+}

@@ -13,8 +13,7 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { avisoDeDeriva, avisoDeServeHuerfano, esquemaPublicado, publicacion,
-         publicacionSobrante, serveHuerfano } from './nodo.mjs';
+import { publicacion, resolverDireccion } from './nodo.mjs';
 import { conEnvDelRepo, estado as estadoCertificado, exportar as exportarCertificado } from './certificado.mjs';
 import { estadoDelTunel, hostnameDelTunel, modoDeAcceso, ordenDeProbarTunel, urlDelTunel,
          veredictoDeSonda } from './cloudflare.mjs';
@@ -138,86 +137,95 @@ function urlCloudflare() {
     `túnel: ${est.activa ? 'activo' : 'PARADO'}, ${est.conectado ? 'conectado' : 'sin conexión registrada'}\n${v.texto}`;
 }
 
+/** Lo que hay que LEER de la máquina para poder decidir. Aparte a propósito:
+ *  `resolverDireccion()` es pura y así se puede probar entera sin una tailnet. */
+function estadoDelServe() {
+  const nodo = sh('tailscale status --json 2>/dev/null');
+  let serve = null;
+  try { serve = JSON.parse(sh('tailscale serve status --json 2>/dev/null')); } catch { /* se degrada */ }
+  return {
+    dnsNodo: nombreDelNodo(),
+    serve,
+    serveTexto: sh('tailscale serve status 2>/dev/null'),
+    pub: PUB,
+    nombrePedido: NOMBRE,
+    puertoWeb: PUERTO,
+    dentroDeLaTailnet: nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo),
+  };
+}
+
+/** La dirección y sus avisos, sea cual sea el modo de acceso. Una sola forma. */
+function direccionActual() {
+  if (MODO !== 'cloudflare') return resolverDireccion(estadoDelServe());
+  const host = hostnameDelTunel(ENV);
+  if (!host) {
+    return { direccion: null, avisos: [],
+      motivo: 'falta CF_HOSTNAME (en el llavero, CWEB_CF_HOSTNAME)' };
+  }
+  return { direccion: urlDelTunel(host), avisos: [], motivo: '' };
+}
+
 /**
  * La dirección desde la que se llega, LEÍDA del estado real de `tailscale serve`.
  *
  * ⚠⚠ No se compone a mano, y ésta es la razón: la primera versión devolvía
  * `https://<nodo>/` porque dio por hecho el puerto 443 — y aquí el 443 lo tiene
- * `sshd`, así que el serve está en el 8443. Esa URL **parecía correcta y no
+ * `sshd`, así que el serve no está ahí. Esa URL **parecía correcta y no
  * cargaba**: abrirla desde el móvil se lee como «la web está rota», que es el
  * peor sitio donde poner un error. Medido el 2026-09-10.
  *
  * La regla, que vale para todo este script: se PREGUNTA por el estado, no se
- * supone. Aquí es literalmente lo que `tailscale serve status` imprime.
+ * supone. Lo que decide vive en `resolverDireccion()` (`nodo.mjs`); aquí sólo se
+ * REDACTA para un humano. Esa separación es el arreglo del 2026-09-12: el mismo
+ * texto lo leía también el lanzador, y la prosa le daba un link falso.
  */
 function url() {
   if (MODO === 'cloudflare') return urlCloudflare();
-  const s = sh('tailscale serve status 2>/dev/null');
-  const dnsNodo = nombreDelNodo();
+  const { direccion, avisos, motivo } = resolverDireccion(estadoDelServe());
 
-  // ⚠⚠ NO se coge «el primer https:// que salga», que es lo que hacía y lo que
-  // dio la URL muerta el 2026-09-10. `serve status` puede publicar VARIOS hosts
-  // —el del nodo y los que quedaron de un nombre anterior— y ahí el orden no
-  // significa nada. Se elige el que es de ESTE nodo, y para eso hay que
-  // comparar, no leer.
-  let serve = null;
-  try { serve = JSON.parse(sh('tailscale serve status --json 2>/dev/null')); } catch { /* abajo se degrada */ }
-  const { propios, huerfanos, sabe } = serveHuerfano(dnsNodo, serve);
-
-  // ⚠⚠ Y EL ESQUEMA TAMPOCO SE SUPONE, desde el 2026-09-11. Esto ponía `https://`
-  // a pelo, que era verdad mientras sólo hubiera una forma de publicar; desde que
-  // se publica por `http` (ver `publicacion()` en `nodo.mjs`) una URL con el
-  // esquema equivocado **parece correcta y no carga** — exactamente el fallo del
-  // puerto 443 que esta misma función existe para no repetir. Se lee del `TCP` que
-  // el propio `serve status --json` trae.
-  const publicada = sabe && propios.length
-    ? `${esquemaDe(serve, propios[0]) ?? PUB.esquema}://${propios[0]}`   // el del nodo, comprobado
-    : (s.match(/https?:\/\/\S+/) || [])[0];                             // sin poder comparar, lo que diga el status
-
-  // ⚠ Si TODO lo publicado es huérfano, no hay URL buena que dar. Devolver la
-  // muerta «porque es lo que dice el status» es exactamente el fallo que costó
-  // la app entera: el comando que existe para no suponer acabó mintiendo con
-  // total confianza. Aquí se dice qué pasa y el comando que lo arregla.
-  const huerfano = avisoDeServeHuerfano(dnsNodo, serve, PUB, PUERTO);
-  if (sabe && huerfanos.length && !propios.length) return huerfano;
-
-  if (publicada) {
-    // ⚠⚠ Y se dice si el nodo NO se llama como debería. Ésta es la pregunta que
-    // se hace justo cuando la app «no funciona» desde el móvil, así que es donde
-    // tiene que estar la respuesta: una URL correcta a secas no explica por qué
-    // la que tienes guardada dejó de servir (medido el 2026-09-10).
-    const deriva = avisoDeDeriva(NOMBRE, dnsNodo, PUB);
-    // ⚠ Y si además sobra una puerta publicada (la `--https` que queda viva al
-    // pasar a `--http`), se dice: es la que cuelga al móvil pidiendo un certificado
-    // que no va a llegar, y desde aquí es invisible porque el host es el correcto.
-    const { sobran } = publicacionSobrante(dnsNodo, serve, PUB);
-    const sobra = sobran.length
-      ? `⚠ Además sobra publicado: ${sobran.join(', ')}, y lo declarado es ` +
-        `${PUB.bandera}. Esa puerta de más es la que deja al móvil esperando un ` +
-        `certificado. Se quita con:\n  sudo -n tailscale serve reset\n` +
-        `  node scripts/tailscale-serve.mjs`
-      : '';
-    return `Desde el móvil (con Tailscale activo):\n  ${publicada.replace(/\/$/, '')}/` +
-      (deriva ? `\n\n${deriva}` : '') +
-      (huerfano ? `\n\n${huerfano}` : '') +
-      (sobra ? `\n\n${sobra}` : '');
+  if (!direccion) {
+    const comoSeArregla = /no hay ningún serve/.test(motivo)
+      ? '  Ponlo con:  acceso   (esta misma sesión)\n'
+      : (/todavía no está en la tailnet/.test(motivo)
+        ? '  Ver docs/decisiones.md, P3.\n' : '');
+    return 'Desde el móvil: todavía NO se puede llegar.\n' +
+      '  Escucha sólo en loopback a propósito (quien alcance este puerto tiene\n' +
+      '  shell en esta máquina).\n' +
+      `  Por qué: ${motivo}.\n` + comoSeArregla +
+      (avisos.length ? `\n${avisos.join('\n\n')}\n\n` : '') +
+      `  Por túnel SSH mientras tanto:  ssh -L ${PUERTO}:127.0.0.1:${PUERTO} <esta-máquina>`;
   }
-  const nodo = sh('tailscale status --json 2>/dev/null');
-  const dentro = nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo);
-  return 'Desde el móvil: todavía NO se puede llegar.\n' +
-    '  Escucha sólo en loopback a propósito (quien alcance este puerto tiene\n' +
-    '  shell en esta máquina).\n' +
-    (dentro
-      ? '  El nodo SÍ está en la tailnet, pero no hay ningún `serve` puesto.\n' +
-        '  Ponlo con:  tailscale   (esta misma sesión)\n'
-      : '  Y este server aún no está en la tailnet: ver docs/decisiones.md, P3.\n') +
-    `  Por túnel SSH mientras tanto:  ssh -L ${PUERTO}:127.0.0.1:${PUERTO} <esta-máquina>`;
+
+  return `Desde el móvil (con Tailscale activo):\n  ${direccion}` +
+    (avisos.length ? `\n\n${avisos.join('\n\n')}` : '');
 }
 
 const orden = (process.argv[2] || '').trim().toLowerCase() || 'estado';
 switch (orden) {
   case 'estado': process.exit(estado());
-  case 'url': console.log(url()); break;
+  case 'url': {
+    // ⚠⚠ `--plano` ES EL CONTRATO CON EL LANZADOR, y existe por lo del
+    // 2026-09-12: `url_de_servicio()` se queda con *la última línea no vacía que
+    // contenga `://`*, y el texto de arriba acaba a veces en el comando que
+    // arregla el serve — que lleva un `http://127.0.0.1:8020` dentro. `launch`
+    // anunciaba esa orden de shell como si fuera el link.
+    //
+    // Aquí se imprime UNA línea y nada más, o NADA y se sale con 1. Así el
+    // contrato no puede confundirse aunque el otro lado no cambie: no hay
+    // segunda línea que malinterpretar. La explicación va por stderr, que es de
+    // donde el lanzador saca su pista sin mezclarla con la respuesta.
+    if (process.argv.includes('--plano')) {
+      const { direccion, motivo } = direccionActual();
+      if (!direccion) {
+        console.error(`sin dirección: ${motivo || 'no la sé'}`);
+        process.exit(1);
+      }
+      console.log(direccion);
+      break;
+    }
+    console.log(url());
+    break;
+  }
   case 'instalar': process.exit(instalar());
   case 'arrancar': console.log(sh(`sudo -n systemctl start ${UNIDAD}`) || '▶️ arrancada'); estado(); break;
   case 'parar': console.log(sh(`sudo -n systemctl stop ${UNIDAD}`) || '⏹️ parada'); break;

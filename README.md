@@ -56,6 +56,82 @@ certificado que desde el 2026-09-11 **viaja con la flota** en vez de pedirse en
 cada dev: ver [§ Por qué ya no hay certificado](#por-qué-ya-no-hay-certificado-2026-09-11)
 y, justo debajo, [§ Y cómo se recupera](#y-cómo-se-recupera-el-certificado-viaja-con-la-flota-2026-09-11).
 
+### El link: llega al arrancar el dev, y si no, se pide
+
+**Al arrancar.** `launch` le pregunta su dirección a cada servicio y la imprime al
+final. Lanzado desde Telegram, eso llega como mensaje sin que nadie haga nada:
+
+```
+  Servicio 'claude-web' corriendo. Estado y logs:
+  python scripts/do_droplet.py service logs claude-web
+  Ábrelo:  http://dev.tail376e31.ts.net:8080/
+```
+
+**Y si no llega, se pide** — que es lo normal cuando algo del arranque falló:
+
+```
+tú  → /use cweb
+tú  → url
+bot ← Desde el móvil (con Tailscale activo):
+        http://dev.tail376e31.ts.net:8080/
+```
+
+#### ⚠⚠ Por qué hay DOS formas de preguntar lo mismo (2026-09-12)
+
+Porque el lanzador y tú no leéis igual, y darle a los dos el mismo texto ya
+falló. `url_de_servicio()` se queda con **la última línea no vacía que contenga
+`://`** (`do_droplet.py:2591`), y `cweb url` es prosa para un humano: cuando el
+`serve` queda en un estado raro, su última línea es el comando que lo arregla.
+Reproducido ejecutando el código:
+
+```
+ULTIMA LINEA : sudo -n tailscale serve --bg --http=8080 http://127.0.0.1:8020
+¿tiene ://?  : true
+```
+
+O sea que `launch` habría anunciado **una orden de shell con un «Ábrelo:»
+delante**. Y ése es el peor sitio donde poner un error: la abres desde el móvil,
+no carga, y concluyes que la app está rota — cuando lo único roto era el
+mensajero. Es la misma lección del puerto 443 del 2026-09-10, por otra puerta:
+**un dato que parece bueno y no lo es cuesta más que no darlo.**
+
+El arreglo es la **R5**: entre dos piezas, la interfaz se declara estrecha.
+
+| quién pregunta | con qué | qué recibe |
+|---|---|---|
+| tú, desde Telegram | `cweb url` | la dirección **y** lo que haya que mirar |
+| el lanzador | `cweb url --plano` | **una línea, o nada** |
+
+```console
+$ node scripts/cweb.mjs url --plano
+http://dev.tail376e31.ts.net:8080/          # exit 0
+
+$ CWEB_ACCESO=cloudflare node scripts/cweb.mjs url --plano
+sin dirección: falta CF_HOSTNAME (en el llavero, CWEB_CF_HOSTNAME)   # a stderr, exit 1
+                                            # stdout: 0 bytes
+```
+
+Tres decisiones que hay que respetar si se toca, y las tres tienen test:
+
+1. **El dato va separado de su explicación**, y el que decide es
+   `resolverDireccion()` en `scripts/nodo.mjs` — **puro**, así que se prueba
+   entero sin una tailnet. `cweb.mjs` sólo lee la máquina y redacta.
+2. **Un aviso NO quita la dirección.** Con una puerta de más publicada la web se
+   ve perfectamente por la buena; negar el link ahí dejaría al dueño sin app por
+   algo que no se lo impide. Lo que sí quita el link es que **no haya ninguno
+   bueno**, y entonces se dice el motivo en una línea.
+3. **El freno es `esDireccion()`, no `includes('://')`.** Lo que distingue una
+   dirección de esa orden de shell es que la orden **tiene espacios**; un
+   `includes` no puede ver esa diferencia, y es exactamente el que falló. La
+   comprobación es de forma completa (`^https?://[^\s]+$`) y vive dentro de
+   `resolverDireccion()`, no en quien llama: un consumidor que se olvide de
+   comprobarlo no puede hacer daño.
+
+8 tests en `tests/contrato-url.test.mjs` —uno de ellos **reproduce el parser del
+lanzador** y demuestra el engaño sobre el texto para humanos— y uno más en
+`digital-ocean-dropplet-auto-launching/tests/test_url_servicio.py`, que fija que
+el descriptor pida `--plano`; **ése falla con el valor anterior** (8/9).
+
 ### Si algo va mal
 
 ```
