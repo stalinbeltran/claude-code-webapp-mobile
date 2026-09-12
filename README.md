@@ -149,7 +149,12 @@ bot ← Desde el móvil (con Tailscale activo):
         http://dev.tail376e31.ts.net:8080/
 ```
 
-#### Por qué la dirección es una IP y no un nombre (2026-09-12)
+#### 🕰 HISTORIA · Por qué la dirección es una IP y no un nombre (2026-09-12)
+
+> ⚠⚠ **Esto ya NO es el presente.** El 2026-09-12 se quitó Tailscale
+> entero —nodo, `serve`, certificado y túnel— y se entra por la IP pública
+> con un token. Se conserva porque explica **por qué** se llegó ahí, no
+> cómo funciona hoy: ver § «Cómo se entra hoy».
 
 **Porque el nombre no bastaba, y medido así se ve en una línea:**
 
@@ -266,7 +271,13 @@ Tres decisiones que hay que respetar si se toca, y las tres tienen test:
    `resolverDireccion()`, no en quien llama: un consumidor que se olvide de
    comprobarlo no puede hacer daño.
 
-#### ⚠⚠ Y una segunda vuelta el mismo día: elegir CUÁL de las direcciones
+#### 🕰 HISTORIA · Y una segunda vuelta el mismo día: elegir CUÁL de las direcciones
+
+> ⚠ `resolverDireccion()` se borró el 2026-09-12 con todo lo de Tailscale. Se
+> conserva esta sección porque la lección no era de Tailscale: **entre varias
+> cosas válidas, elegir por posición en vez de comparando es un fallo que se
+> repite**. Hoy sólo hay una dirección posible, así que no puede darse.
+
 
 `esDireccion()` impide que se entregue una **orden** como si fuera una dirección.
 No decide **cuál** de varias direcciones bien formadas es la buena, y ahí quedaban
@@ -444,7 +455,12 @@ rehacer la máquina.** No la escribas de memoria: pídela con `/use cweb` → `u
 que la lee del estado real. El caso en que cambia, y qué hacer, arriba en
 [«Failed to fetch»](#-no-pude-leer-las-conversaciones-failed-to-fetch--casi-siempre-es-la-url-no-la-app).
 
-### Por qué ya no hay certificado (2026-09-11)
+### 🕰 HISTORIA · Por qué ya no hay certificado (2026-09-11)
+
+> ⚠⚠ **Esto ya NO es el presente.** El 2026-09-12 se quitó Tailscale
+> entero —nodo, `serve`, certificado y túnel— y se entra por la IP pública
+> con un token. Se conserva porque explica **por qué** se llegó ahí, no
+> cómo funciona hoy: ver § «Cómo se entra hoy».
 
 **Medido en esta máquina el 2026-09-11.** El nodo estaba bien (`dev`, móvil
 conectado directo), el `serve` bien puesto y la app contestando **200 en 8 ms** por
@@ -509,7 +525,12 @@ la caché de su origen `https://`. Sirve de **trampolín**: abre, no alcanza a n
 y desde ahí se escribe la dirección nueva. Es exactamente para lo que se hizo
 (ver [arriba](#y-desde-el-2026-09-10-no-hace-falta-reinstalar-la-app-se-le-cambia-la-dirección)).
 
-### Acceso por Cloudflare: la alternativa que se prueba (2026-09-12)
+### 🕰 HISTORIA · Acceso por Cloudflare: la alternativa que se prueba (2026-09-12)
+
+> ⚠⚠ **Esto ya NO es el presente.** El 2026-09-12 se quitó Tailscale
+> entero —nodo, `serve`, certificado y túnel— y se entra por la IP pública
+> con un token. Se conserva porque explica **por qué** se llegó ahí, no
+> cómo funciona hoy: ver § «Cómo se entra hoy».
 
 Tailscale quedó **marcado como válido** el 2026-09-12 (tag `tailscale-valido-2026-09-11`
 en este repo y en el lanzador): todo lo que mordió está cerrado con test. Y aun así el

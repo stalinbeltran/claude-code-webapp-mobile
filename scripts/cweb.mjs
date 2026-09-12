@@ -3,34 +3,25 @@
 // y existe por la regla 4 de escritura del coordinador: **un comando nuevo no
 // está terminado hasta que se puede invocar desde el móvil**.
 //
-// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log|acceso|tailscale|cert [exportar]]
+// Uso:  node scripts/cweb.mjs [estado|url|arrancar|parar|instalar|log]
 //
 // ⚠ Este script NO decide dónde escucha el servidor: eso está en
-// `server/index.mjs` y es 127.0.0.1 siempre. Aquí sólo se enciende y se apaga.
+// `server/index.mjs`, y depende de si hay token (ver `server/puerta.mjs`).
+// Aquí se enciende, se apaga, y se pide el enlace.
 
 import { execFileSync, execSync } from 'node:child_process';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { token as tokenDeLaPuerta, FICHERO_TOKEN } from '../server/puerta.mjs';
-import { conEnvDelRepo } from './certificado.mjs';
+import { token as tokenDeLaPuerta, FICHERO_TOKEN, conEnvDelRepo } from '../server/puerta.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
-// ⚠ El entorno MÁS el `.env` del repo (donde el lanzador deja `TS_*`): sin
-// leerlo, `publicacion()` no vería el certificado y diría `http`.
+// ⚠ El entorno MÁS el `.env` del repo, que es donde el lanzador deja lo suyo
+// (`CWEB_TOKEN`). Sin leerlo, un token puesto por el lanzador no se vería.
 const ENV = conEnvDelRepo(RAIZ);
 const PUERTO = ENV.CWEB_PORT ?? '8020';
-// Por dónde se llega: tailscale o cloudflare. Lo decide `CWEB_ACCESO` o el dato
-// (hay token de túnel). Ver `scripts/cloudflare.mjs` y `scripts/acceso.mjs`.
-/** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
- *  porque es el que quedó escrito en la PWA instalada en el móvil. */
-const NOMBRE = ENV.CWEB_HOSTNAME ?? 'dev';
-
-/** El esquema de una clave `host:puerto` del `serve status`, o null si no se sabe. */
-const esquemaDe = (serve, clave) =>
-  esquemaPublicado(serve, (String(clave).match(/:(\d+)$/) || [])[1] || '');
 
 /** El `data/` del coordinador: de dónde sale el log que esta web lee.
  *  Se DECLARA con `CWEB_DATA_DIR`; el defecto es el sitio de siempre, y si no

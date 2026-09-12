@@ -44,6 +44,24 @@ function leerEnv(f) {
 }
 
 /**
+ * El entorno del proceso MÁS el `.env` del repo, que es donde el lanzador deja
+ * las variables del puente `env_prefix` (aquí, `CWEB_TOKEN`).
+ *
+ * El entorno real manda; el fichero sólo rellena lo que falte. Hace falta porque
+ * estos scripts corren desde tres sitios con tres entornos distintos —el
+ * `install` del aprovisionamiento, la unidad de systemd y una sesión SSH— y en
+ * ninguno de los tres viene en el entorno: viene en el `.env`.
+ *
+ * ⚠ Vivía en `scripts/certificado.mjs` hasta el 2026-09-12 y se mudó aquí al
+ * borrar todo lo de Tailscale. No es del certificado: es de «cómo lee este repo
+ * lo que le deja el lanzador», y ahora su único usuario es el token.
+ */
+export function conEnvDelRepo(raiz, env = process.env) {
+  const delFichero = leerEnv(join(raiz, '.env'));
+  return { ...delFichero, ...env };
+}
+
+/**
  * El token de la puerta, con su orden de precedencia DECLARADO:
  *
  *  1. `CWEB_TOKEN` del entorno — lo que manda si alguien lo pone a mano.
