@@ -1,9 +1,20 @@
 {
   "name": "cweb",
-  "descripcion": "La web para LEER las conversaciones de `c` con el markdown renderizado. Sin argumentos, el estado.",
-  "ejemplos": ["estado", "url", "arrancar", "parar", "log", "acceso", "tailscale", "cert"],
-  "command": "A=\"{{input}}\"; case \"$A\" in \"cert exportar\"*) echo 'cert exportar imprime la CLAVE PRIVADA del certificado y este chat no es sitio para ella. Para guardarla en el llavero, desde la maquina: entornos recoger (ejecutor entornos).';; *) node scripts/cweb.mjs ${A:-estado} 2>&1;; esac; true",
-  "encargados": ["echo"],
+  "descripcion": "La web para LEER las conversaciones de `c` con el markdown renderizado. Sin argumentos, el estado. `url` da el enlace para el movil: LLEVA EL TOKEN dentro, o sea que ES la llave.",
+  "ejemplos": [
+    "estado",
+    "url",
+    "arrancar",
+    "parar",
+    "log",
+    "instalar"
+  ],
+  "command": "A=\"{{input}}\"; node scripts/cweb.mjs ${A:-estado} 2>&1; true",
+  "encargados": [
+    "echo"
+  ],
   "timeoutMs": 60000,
-  "requiere": ["node"]
+  "requiere": [
+    "node"
+  ]
 }

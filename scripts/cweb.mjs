@@ -13,10 +13,8 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { publicacion, resolverDireccion } from './nodo.mjs';
-import { conEnvDelRepo, estado as estadoCertificado, exportar as exportarCertificado } from './certificado.mjs';
-import { estadoDelTunel, hostnameDelTunel, modoDeAcceso, ordenDeProbarTunel, urlDelTunel,
-         veredictoDeSonda } from './cloudflare.mjs';
+import { token as tokenDeLaPuerta, FICHERO_TOKEN } from '../server/puerta.mjs';
+import { conEnvDelRepo } from './certificado.mjs';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const UNIDAD = 'claude-web';
@@ -24,10 +22,8 @@ const UNIDAD = 'claude-web';
 // leerlo, `publicacion()` no vería el certificado y diría `http`.
 const ENV = conEnvDelRepo(RAIZ);
 const PUERTO = ENV.CWEB_PORT ?? '8020';
-const PUB = publicacion(ENV);
 // Por dónde se llega: tailscale o cloudflare. Lo decide `CWEB_ACCESO` o el dato
 // (hay token de túnel). Ver `scripts/cloudflare.mjs` y `scripts/acceso.mjs`.
-const MODO = modoDeAcceso(ENV);
 /** El nombre que este nodo DEBERÍA tener: el mismo defecto que `tailscale-unir.mjs`,
  *  porque es el que quedó escrito en la PWA instalada en el móvil. */
 const NOMBRE = ENV.CWEB_HOSTNAME ?? 'dev';
@@ -66,7 +62,30 @@ function esperaAQueConteste(segundos = 8) {
   return null;
 }
 
+/**
+ * Deja la máquina lista para que el móvil llegue: unidad, TOKEN y puerto abierto.
+ *
+ * ⚠⚠ LAS TRES VAN JUNTAS Y NO ES COMODIDAD. Pedirlas por separado es la forma de
+ * que falte una y no se note: sin token no se ata nada público (y el móvil no
+ * llega), y sin abrir el puerto tampoco llega aunque haya token. Que un paso sólo
+ * funcione si alguien se acuerda del otro es lo que este proyecto lleva pagando
+ * toda la semana.
+ *
+ * ⚠ Y el orden importa: PRIMERO el token, DESPUÉS el puerto. Al revés habría un
+ * instante con el puerto abierto y sin puerta.
+ */
 function instalar() {
+  const nuevoToken = process.argv.includes('--token-nuevo');
+  if (nuevoToken) {
+    // Rotar es borrar y volver a crear: el token vive en un fichero 0600.
+    try { execFileSync('rm', ['-f', FICHERO_TOKEN]); } catch { /* no estaba */ }
+  }
+  const t = tokenDeLaPuerta({ env: ENV, raizRepo: RAIZ, crear: true });
+  // ⚠ El token NO se imprime aquí: esto puede correr dentro del aprovisionamiento,
+  // y lo que se imprime ahí acaba en el log del lanzador. Se pide con `url`.
+  console.log(t ? `🔑 Puerta: ${nuevoToken ? 'token NUEVO creado' : 'token listo'} (no se imprime; pídelo con \`url\`)`
+                : '❌ No pude crear el token: sin él la web sólo escuchará en loopback.');
+
   const unit = `[Unit]
 Description=claude-web (la web de lectura de las conversaciones de c)
 After=network-online.target
@@ -89,7 +108,17 @@ WantedBy=multi-user.target
     execFileSync('sudo', ['-n', 'tee', destino], { input: unit, stdio: ['pipe', 'ignore', 'pipe'] });
     sh('sudo -n systemctl daemon-reload');
     sh(`sudo -n systemctl enable ${UNIDAD}`);
-    console.log(`✅ Unidad instalada en ${destino}. Arráncala con: arrancar`);
+    console.log(`✅ Unidad instalada en ${destino}.`);
+    // El puerto, DESPUÉS del token. Y se dice si no se pudo: una web que no se ve
+    // desde el móvil y no explica por qué manda a depurar la app, que está bien.
+    if (t) {
+      const r = sh(`sudo -n ufw allow ${PUERTO}/tcp 2>&1`);
+      console.log(/added|updated|existing/i.test(r)
+        ? `🔓 Puerto ${PUERTO} abierto en ufw (con token en la puerta).`
+        : `⚠ No pude abrir el puerto ${PUERTO} en ufw: ${r.split('\n')[0] || 'sin salida'}\n` +
+          `   A mano:  sudo ufw allow ${PUERTO}/tcp`);
+    }
+    console.log('   Arráncala con: arrancar     · y pide el enlace con: url');
   } catch (e) {
     console.log(`❌ No pude instalar la unidad (¿sudo sin contraseña?): ${e.message}`);
     console.log('   El fichero que hace falta, para ponerlo a mano:\n');
@@ -103,8 +132,9 @@ function estado() {
   const viva = activo();
   const hayDatos = existsSync(join(DATOS, 'mensajes'));
   console.log(`web de lectura: ${viva ? '🟢 corriendo' : '🔴 parada'}   (unidad ${UNIDAD})`);
-  console.log(`puerto        : ${PUERTO}, sólo en 127.0.0.1`);
-  console.log(`acceso        : ${MODO}  (CWEB_ACCESO, o el dato: hay token de túnel → cloudflare)`);
+  const hayToken = Boolean(tokenDeLaPuerta({ env: ENV, raizRepo: RAIZ }));
+  console.log(`puerto        : ${PUERTO}${hayToken ? ', abierto con token en la puerta' : ', SÓLO en 127.0.0.1 (no hay token)'}`);
+  console.log(`puerta        : ${hayToken ? '🟢 hay token (`url` da el enlace)' : '🔴 SIN token — `instalar` lo crea'}`);
   console.log(`log que lee   : ${DATOS}${hayDatos ? '' : '  ⚠ todavía no tiene mensajes/'}`);
   if (viva) {
     const n = esperaAQueConteste();
@@ -117,122 +147,75 @@ function estado() {
   return viva ? 0 : 1;
 }
 
-/** El nombre DNS real de este nodo, o null si no está en la tailnet. Se PREGUNTA. */
-function nombreDelNodo() {
-  const r = sh('tailscale status --json 2>/dev/null');
-  if (!r.startsWith('{')) return null;
-  try { return JSON.parse(r).Self?.DNSName?.replace(/\.$/, '') || null; } catch { return null; }
-}
-
-/** La dirección por Cloudflare: el nombre público del túnel, SONDEADO. */
-function urlCloudflare() {
-  const host = hostnameDelTunel(ENV);
-  if (!host) {
-    return 'Desde el móvil: todavía NO se puede llegar por Cloudflare.\n' +
-      '  Falta CF_HOSTNAME (en el llavero, CWEB_CF_HOSTNAME): el "public hostname" del túnel.';
-  }
-  const est = estadoDelTunel(sh);
-  const v = veredictoDeSonda(sh(ordenDeProbarTunel(host)).trim());
-  return `Desde el móvil (sin ninguna app, con tu login de Access):\n  ${urlDelTunel(host)}\n\n` +
-    `túnel: ${est.activa ? 'activo' : 'PARADO'}, ${est.conectado ? 'conectado' : 'sin conexión registrada'}\n${v.texto}`;
-}
-
-/** Lo que hay que LEER de la máquina para poder decidir. Aparte a propósito:
- *  `resolverDireccion()` es pura y así se puede probar entera sin una tailnet. */
-function estadoDelServe() {
-  const nodo = sh('tailscale status --json 2>/dev/null');
-  let serve = null;
-  try { serve = JSON.parse(sh('tailscale serve status --json 2>/dev/null')); } catch { /* se degrada */ }
-  return {
-    dnsNodo: nombreDelNodo(),
-    serve,
-    serveTexto: sh('tailscale serve status 2>/dev/null'),
-    pub: PUB,
-    nombrePedido: NOMBRE,
-    puertoWeb: PUERTO,
-    dentroDeLaTailnet: nodo.startsWith('{') && /"BackendState":\s*"Running"/.test(nodo),
-  };
-}
-
 /**
- * La dirección DIRECTA: `http://<ip-de-la-tailnet>:<puerto>/`, o null.
+ * La IP por la que se llega desde fuera.
  *
- * ⚠⚠ Es la primera que se prueba desde el 2026-09-12, y el motivo está medido:
- * `tailscale serve` enruta por la cabecera `Host`, así que la app se veía por su
- * nombre y **por IP daba 404**. Llegar dependía de que el móvil resolviera
- * MagicDNS; cuando no lo hacía, no había NINGUNA dirección que funcionara. Una
- * IP no depende del DNS de nadie.
- *
- * ⚠ Y NO se compone: se COMPRUEBA. Que el servidor diga que se ató no prueba que
- * se llegue —hace falta además que el paquete entre por `tailscale0`—, y dar una
- * dirección sin probarla es lo que este fichero lleva tres fallos evitando. Si no
- * contesta 200, esto devuelve null y se cae al camino del nombre.
+ * ⚠ Metadatos de DigitalOcean primero —es la respuesta correcta en un droplet, y
+ * no depende de que nadie de fuera nos la diga— y la del socket como defecto. Es
+ * el mismo orden que usa `foveal-vision/scripts/web_app.py`, y se copia a
+ * propósito: dos formas distintas de contestar lo mismo divergen.
  */
-function direccionDirecta() {
-  const ip = (sh('tailscale ip -4 2>/dev/null') || '').split('\n')[0].trim();
-  if (!ip) return null;
-  const url = `http://${ip}:${PUERTO}/`;
-  const code = sh(`curl -s -o /dev/null -w '%{http_code}' --max-time 4 ${url}api/salud`).trim();
-  return code === '200' ? url : null;
-}
-
-/** La dirección y sus avisos, sea cual sea el modo de acceso. Una sola forma. */
-function direccionActual() {
-  if (MODO !== 'cloudflare') {
-    const directa = direccionDirecta();
-    if (directa) return { direccion: directa, avisos: [], motivo: '' };
-    // Sin directa se cae al nombre: sigue valiendo si el móvil resuelve MagicDNS,
-    // y su fallo explica mejor qué pasa (nodo fuera, serve sin poner, etc.).
-    const r = resolverDireccion(estadoDelServe());
-    if (r.direccion) {
-      r.avisos = [...r.avisos,
-        '⚠ Esta dirección va por NOMBRE (`tailscale serve`), así que necesita que ' +
-        'tu móvil resuelva MagicDNS. La directa por IP no contestó: si el nombre ' +
-        'tampoco te funciona, mira `cweb estado`.'];
-    }
-    return r;
-  }
-  const host = hostnameDelTunel(ENV);
-  if (!host) {
-    return { direccion: null, avisos: [],
-      motivo: 'falta CF_HOSTNAME (en el llavero, CWEB_CF_HOSTNAME)' };
-  }
-  return { direccion: urlDelTunel(host), avisos: [], motivo: '' };
+function ipPublica() {
+  const meta = sh('curl -s --max-time 2 ' +
+    'http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address').trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(meta)) return meta;
+  const local = sh("ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \\K[\\d.]+'").trim();
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(local) ? local : '';
 }
 
 /**
- * La dirección desde la que se llega, LEÍDA del estado real de `tailscale serve`.
+ * La dirección y sus avisos. UNA sola forma, y desde el 2026-09-12 UNA sola vía:
+ * la IP pública con el token en la URL.
  *
- * ⚠⚠ No se compone a mano, y ésta es la razón: la primera versión devolvía
- * `https://<nodo>/` porque dio por hecho el puerto 443 — y aquí el 443 lo tiene
- * `sshd`, así que el serve no está ahí. Esa URL **parecía correcta y no
- * cargaba**: abrirla desde el móvil se lee como «la web está rota», que es el
- * peor sitio donde poner un error. Medido el 2026-09-10.
+ * ⚠⚠ CERO TAILSCALE desde ese día (decisión del dueño). Lo que había antes
+ * —nombre de MagicDNS, `tailscale serve`, certificado— se fue por acumulación de
+ * fallos que todos tenían la misma forma: **llegar dependía de algo que se pone
+ * en otra parte** (que Let's Encrypt no te limite, que el nodo recupere su
+ * nombre, que el móvil resuelva MagicDNS). Una IP y un token no dependen de nada
+ * de eso.
  *
- * La regla, que vale para todo este script: se PREGUNTA por el estado, no se
- * supone. Lo que decide vive en `resolverDireccion()` (`nodo.mjs`); aquí sólo se
- * REDACTA para un humano. Esa separación es el arreglo del 2026-09-12: el mismo
- * texto lo leía también el lanzador, y la prosa le daba un link falso.
+ * ⚠ Y NO se compone a ciegas: se COMPRUEBA que contesta 200 con el token antes de
+ * darla. Dar una dirección sin probarla es lo que este fichero lleva cuatro
+ * fallos evitando.
+ */
+function direccionActual() {
+  const t = tokenDeLaPuerta({ env: ENV, raizRepo: RAIZ });
+  if (!t) {
+    return { direccion: null, avisos: [],
+      motivo: 'no hay token, así que la web sólo escucha en loopback (`cweb instalar` lo crea)' };
+  }
+  const ip = ipPublica();
+  if (!ip) {
+    return { direccion: null, avisos: [],
+      motivo: 'no pude averiguar la IP pública de esta máquina' };
+  }
+  const url = `http://${ip}:${PUERTO}/?t=${t}`;
+  const code = sh(`curl -s -o /dev/null -w '%{http_code}' --max-time 5 '${url}'`).trim();
+  if (code !== '200') {
+    return { direccion: null, avisos: [],
+      motivo: `la web no contesta por ${ip}:${PUERTO} (dio "${code || 'nada'}"): ` +
+        `¿está arrancada y abierto el puerto? \`cweb instalar\` hace las dos cosas` };
+  }
+  return { direccion: url, avisos: [], motivo: '' };
+}
+
+/**
+ * La dirección, redactada para un humano.
+ *
+ * ⚠⚠ LLEVA EL TOKEN DENTRO, y eso hay que decirlo cada vez: esa URL **es la
+ * llave**. Quien la tenga entra, y por ese puerto se llega a una máquina donde
+ * `claude` corre con `bypassPermissions`. No es una dirección más.
  */
 function url() {
-  if (MODO === 'cloudflare') return urlCloudflare();
-  const { direccion, avisos, motivo } = direccionActual();
-
+  const { direccion, motivo } = direccionActual();
   if (!direccion) {
-    const comoSeArregla = /no hay ningún serve/.test(motivo)
-      ? '  Ponlo con:  acceso   (esta misma sesión)\n'
-      : (/todavía no está en la tailnet/.test(motivo)
-        ? '  Ver docs/decisiones.md, P3.\n' : '');
     return 'Desde el móvil: todavía NO se puede llegar.\n' +
-      '  Escucha sólo en loopback a propósito (quien alcance este puerto tiene\n' +
-      '  shell en esta máquina).\n' +
-      `  Por qué: ${motivo}.\n` + comoSeArregla +
-      (avisos.length ? `\n${avisos.join('\n\n')}\n\n` : '') +
+      `  Por qué: ${motivo}.\n` +
       `  Por túnel SSH mientras tanto:  ssh -L ${PUERTO}:127.0.0.1:${PUERTO} <esta-máquina>`;
   }
-
-  return `Desde el móvil (con Tailscale activo):\n  ${direccion}` +
-    (avisos.length ? `\n\n${avisos.join('\n\n')}` : '');
+  return `Desde el móvil, sin ninguna app y sin VPN:\n  ${direccion}\n\n` +
+    '⚠ Esa URL LLEVA LA LLAVE dentro. Quien la tenga entra a esta máquina: no la\n' +
+    '  reenvíes, y si se te escapa, cámbiala con `cweb instalar --token-nuevo`.';
 }
 
 const orden = (process.argv[2] || '').trim().toLowerCase() || 'estado';
@@ -265,59 +248,9 @@ switch (orden) {
   case 'arrancar': console.log(sh(`sudo -n systemctl start ${UNIDAD}`) || '▶️ arrancada'); estado(); break;
   case 'parar': console.log(sh(`sudo -n systemctl stop ${UNIDAD}`) || '⏹️ parada'); break;
   case 'log': console.log(sh(`journalctl -u ${UNIDAD} -n 40 -o cat --no-pager`)); break;
-  case 'acceso': {
-    // Relanza el acceso que toque (Tailscale o Cloudflare) DESDE TELEGRAM. Es el
-    // camino genérico; `tailscale` se conserva para el que ya lo tenga en los dedos.
-    const r = sh(`node ${join(RAIZ, 'scripts', 'acceso.mjs')} unir 2>&1`);
-    console.log(r || '(sin salida)');
-    break;
-  }
-  case 'tailscale': {
-    // Relanza el configurador. Hace falta poder hacerlo DESDE TELEGRAM: la
-    // primera vez suele faltar un permiso en la tailnet, y quien lo da está en
-    // el móvil, no delante de la máquina.
-    //
-    // ⚠ Se EJECUTA el script, no se arranca una unidad. La primera versión hacía
-    // `systemctl start ts-serve`, y esa unidad es transitoria (`systemd-run`): en
-    // cuanto termina, deja de existir. El `start` fallaba, el `tail` enseñaba el
-    // log VIEJO, y parecía que había reintentado cuando no había hecho nada.
-    // Medido el 2026-09-10, y costó una vuelta entera.
-    const r = sh(`node ${join(RAIZ, 'scripts', 'tailscale-serve.mjs')} --esperar 1 2>&1`);
-    console.log(r || '(sin salida)');
-    break;
-  }
-  case 'cert': {
-    // El certificado con el que se publica por https: qué tiene tailscaled, qué
-    // trae el llavero y si coinciden. Existe porque el fallo del 2026-09-11 era
-    // INVISIBLE desde aquí: nodo bien, serve bien, unidad activa, y el móvil
-    // colgado en un handshake TLS contra un 429 de Let's Encrypt.
-    //
-    // `cert exportar` imprime el par en las dos líneas que van al llavero. Es la
-    // ÚNICA orden de este script que saca un secreto por stdout, y es para que la
-    // lea `entornos recoger` del lanzador, no una persona: el ejecutor de Telegram
-    // la rechaza a propósito (ver telegram/executors/cweb.json).
-    const que = (process.argv[3] || '').trim().toLowerCase();
-    const dns = nombreDelNodo();
-    if (que === 'exportar') {
-      const lineas = dns ? exportarCertificado(dns) : null;
-      if (!lineas) {
-        console.error(dns
-          ? `no hay certificado en tailscaled para ${dns}: nada que exportar`
-          : 'el nodo no está en la tailnet: no sé de qué nombre sería el certificado');
-        process.exit(1);
-      }
-      console.log(lineas.join('\n'));
-      break;
-    }
-    if (que) { console.log(`No sé qué es "cert ${que}". Órdenes: cert · cert exportar`); process.exit(2); }
-    console.log(`publicación   : ${PUB.bandera}` +
-      (String(ENV.CWEB_TS_ESQUEMA ?? '').trim() ? ' (por CWEB_TS_ESQUEMA)' : ' (por defecto: https sólo si el llavero trae certificado)'));
-    console.log(estadoCertificado(dns, ENV));
-    break;
-  }
   default:
     // ⚠ El último caso SE NIEGA, nunca es una acción por defecto: así es como se
     // acaba corriendo lo que nadie pidió (medido el 2026-09-08 en otro lanzador).
-    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log · acceso · tailscale · cert`);
+    console.log(`No sé qué es "${orden}".\nÓrdenes: estado · url · arrancar · parar · instalar · log`);
     process.exit(2);
 }

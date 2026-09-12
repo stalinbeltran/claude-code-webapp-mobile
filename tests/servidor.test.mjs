@@ -361,92 +361,88 @@ test('el fichero se escribe con rename: el coordinador nunca ve uno a medias', a
 });
 
 // ---------------------------------------------------------------------------
-// 1 bis · DÓNDE SE ATA, ahora que se ata a MÁS de una dirección (2026-09-12)
+// 1 bis · SE EXPONE SI Y SÓLO SI HAY TOKEN (2026-09-12, «cero tailscale»)
 // ---------------------------------------------------------------------------
 //
-// ⚠⚠ El test de arriba sigue valiendo, pero desde hoy prueba MENOS de lo que
-// parece: ata su propio servidor a `HOST` y comprueba que desde otra IP no se
-// llega. El camino real ya no hace eso — ata loopback **y la IP de la tailnet**,
-// a propósito, porque `tailscale serve` enruta por la cabecera `Host` y por IP
-// daba 404 (medido ese día: `http://100.79.201.53:8080/` → 404 page not found).
+// ⚠⚠ El test de arriba sigue valiendo pero prueba MENOS de lo que parece: ata su
+// propio servidor a `HOST` y comprueba que desde otra IP no se llega. El camino
+// real ya no hace eso — con token se ata al comodín a propósito, porque sin
+// Tailscale y sin túnel el puerto público es la única forma de que el móvil
+// llegue.
 //
-// O sea que el freno se mueve: ya no es «sólo loopback», es **nunca un comodín y
-// nunca una dirección pública**. Y eso hay que probarlo donde se decide, que es
-// `bindAceptable`/`direccionesDeEscucha` — si no, quedaría una frase vigilando
-// un cambio que el test anterior no puede ver.
+// Así que el freno se MUEVE, y hay que probarlo donde se decide: ya no es «sólo
+// loopback», es **nunca un puerto público sin puerta**. Si esto se rompe, queda
+// abierto a Internet un camino a una máquina donde `claude` corre con
+// `bypassPermissions` y sin la allowlist del bot. Es el único fallo de este
+// fichero que se paga con la máquina, así que va primero (R10).
 
-test('⚠⚠ ningún comodín, en ninguna de sus formas', () => {
-  for (const comodin of ['0.0.0.0', '::', '*', '', '   ']) {
-    const v = bindAceptable(comodin);
-    assert.equal(v.ok, false, `«${comodin}» ataría también la IP pública`);
-    assert.match(v.motivo, /PÚBLICA/, 'y el motivo dice lo que cuesta, no sólo que no');
+test('⚠⚠ SIN token no se ata NADA que no sea loopback', () => {
+  for (const dir of ['0.0.0.0', '::', '*', '64.227.27.32', '100.79.201.53', '10.0.0.1']) {
+    const v = bindAceptable(dir, { hayToken: false });
+    assert.equal(v.ok, false, `${dir} sin token abriría un puerto sin puerta`);
+    assert.match(v.motivo, /token/, 'y el motivo dice exactamente qué falta');
+    assert.match(v.motivo, /cweb instalar/, 'y cómo arreglarlo');
   }
+  // Loopback sí, siempre: quien ya está dentro de la máquina está dentro.
+  assert.equal(bindAceptable('127.0.0.1', { hayToken: false }).ok, true);
+  assert.equal(bindAceptable('::1', { hayToken: false }).ok, true);
 });
 
-test('la tailnet vale, y sus bordes están donde deben (CGNAT 100.64.0.0/10)', () => {
-  for (const dentro of ['100.64.0.0', '100.79.201.53', '100.127.255.255']) {
-    assert.equal(bindAceptable(dentro).ok, true, `${dentro} es tailnet`);
-    assert.equal(bindAceptable(dentro).clase, 'tailnet');
-  }
-  for (const fuera of ['100.63.255.255', '100.128.0.1', '10.0.0.1', '192.168.1.5']) {
-    assert.equal(bindAceptable(fuera).ok, false, `${fuera} NO es tailnet y no puede colarse`);
-  }
-  assert.equal(bindAceptable('127.0.0.1').clase, 'loopback');
-  assert.equal(bindAceptable('::1').clase, 'loopback');
+test('CON token el comodín vale: es lo que hace que se vea desde el móvil', () => {
+  assert.equal(bindAceptable('0.0.0.0', { hayToken: true }).ok, true);
+  assert.equal(bindAceptable('0.0.0.0', { hayToken: true }).clase, 'comodín');
+  assert.equal(bindAceptable('64.227.27.32', { hayToken: true }).clase, 'nombrada');
 });
 
-test('⚠⚠ las IPs PÚBLICAS DE ESTA MÁQUINA se rechazan (no es un caso hipotético)', () => {
-  // Se leen de verdad, como hace el test de arriba: lo que hay que impedir es
-  // atarse a la IP por la que este droplet se ve desde Internet.
-  const publicas = Object.values(networkInterfaces()).flat()
-    .filter((i) => i && !i.internal && !/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address))
-    .map((i) => i.address);
-  for (const ip of publicas) {
-    assert.equal(bindAceptable(ip).ok, false,
-      `${ip} es una dirección de esta máquina que NO es de la tailnet: atarse ahí la abre`);
-  }
+test('por defecto: comodín con token, sólo loopback sin él', () => {
+  assert.deepEqual(direccionesDeEscucha({ env: {}, hayToken: true }).escuchar, ['0.0.0.0']);
+  assert.deepEqual(direccionesDeEscucha({ env: {}, hayToken: false }).escuchar, ['127.0.0.1']);
 });
 
-test('por defecto: loopback y la de la tailnet; sin tailnet, sólo loopback', () => {
-  assert.deepEqual(direccionesDeEscucha({ env: {}, ipTailnet: '100.79.201.53' }).escuchar,
-    ['127.0.0.1', '100.79.201.53']);
-  assert.deepEqual(direccionesDeEscucha({ env: {}, ipTailnet: null }).escuchar, ['127.0.0.1']);
+test('⚠ el comodín NO añade loopback aparte: sería EADDRINUSE', () => {
+  // Atar 127.0.0.1:<puerto> después de 0.0.0.0:<puerto> falla, y ese error se
+  // leería como «el puerto está ocupado» cuando lo ocupa uno mismo.
+  const r = direccionesDeEscucha({ env: {}, hayToken: true });
+  assert.deepEqual(r.escuchar, ['0.0.0.0']);
+  assert.ok(!r.escuchar.includes('127.0.0.1'));
 });
 
-test('⚠ loopback NO se puede quitar, ni con CWEB_BIND', () => {
-  // De ahí cuelgan la sonda de `cweb estado` y el túnel SSH de emergencia. Una
-  // salida de emergencia que se pueda desconfigurar no es una salida.
-  const r = direccionesDeEscucha({ env: { CWEB_BIND: '100.79.201.53' }, ipTailnet: null });
-  assert.ok(r.escuchar.includes('127.0.0.1'));
-  assert.ok(r.escuchar.includes('100.79.201.53'));
+test('⚠ loopback está siempre que no haya comodín que lo cubra', () => {
+  const r = direccionesDeEscucha({ env: { CWEB_BIND: '64.227.27.32' }, hayToken: true });
+  assert.ok(r.escuchar.includes('127.0.0.1'), 'la sonda y el túnel SSH cuelgan de ahí');
+  assert.ok(r.escuchar.includes('64.227.27.32'));
 });
 
 test('⚠ lo rechazado se DEVUELVE, no se traga en silencio', () => {
-  // Atarse a menos de lo que te pidieron, y callarlo, es la clase de fallo que
-  // se descubre desde el móvil y se atribuye a la red.
-  const r = direccionesDeEscucha({ env: { CWEB_BIND: '0.0.0.0,100.79.201.53' }, ipTailnet: null });
-  assert.deepEqual(r.escuchar, ['127.0.0.1', '100.79.201.53']);
+  const r = direccionesDeEscucha({ env: { CWEB_BIND: '0.0.0.0' }, hayToken: false });
+  assert.deepEqual(r.escuchar, ['127.0.0.1'], 'se cae a loopback, no se abre');
   assert.equal(r.rechazadas.length, 1);
   assert.equal(r.rechazadas[0].dir, '0.0.0.0');
-  assert.ok(r.rechazadas[0].motivo);
+  assert.match(r.rechazadas[0].motivo, /token/);
 });
 
-test('⚠⚠ R14: NINGUNA entrada consigue que se ate a algo que no sea loopback o tailnet', () => {
-  // El barrido. Es la invariante que de verdad importa ahora, y la que el test
-  // del principio ya no puede ver.
+test('⚠⚠ R14: NINGUNA entrada expone un puerto sin token', () => {
+  // El barrido, y es LA invariante. Si algún día esto pasa a verde con
+  // `hayToken: false` y algo distinto de loopback, hay un shell abierto a Internet.
   const intentos = [
-    {}, { CWEB_BIND: '0.0.0.0' }, { CWEB_BIND: '::' }, { CWEB_BIND: '' },
-    { CWEB_BIND: '143.110.1.2' }, { CWEB_BIND: '0.0.0.0,::,143.110.1.2' },
-    { CWEB_BIND: '   ,  ,' }, { CWEB_BIND: 'localhost' },
+    {}, { CWEB_BIND: '0.0.0.0' }, { CWEB_BIND: '::' }, { CWEB_BIND: '*' },
+    { CWEB_BIND: '64.227.27.32' }, { CWEB_BIND: '0.0.0.0,::,64.227.27.32' },
+    { CWEB_BIND: '   ,  ,' }, { CWEB_BIND: 'localhost' }, { CWEB_BIND: '0.0.0.0 ' },
   ];
   for (const env of intentos) {
-    for (const ip of [null, '100.79.201.53', '0.0.0.0']) {
-      const { escuchar } = direccionesDeEscucha({ env, ipTailnet: ip });
-      for (const d of escuchar) {
-        assert.equal(bindAceptable(d).ok, true,
-          `con env=${JSON.stringify(env)} e ip=${ip} se ataría a ${d}`);
-      }
-      assert.ok(escuchar.includes('127.0.0.1'), 'y loopback siempre está');
-    }
+    const { escuchar } = direccionesDeEscucha({ env, hayToken: false });
+    assert.deepEqual(escuchar, ['127.0.0.1'],
+      `con env=${JSON.stringify(env)} y SIN token se ataría a ${escuchar.join(', ')}`);
+  }
+});
+
+test('⚠ y las IPs PÚBLICAS de esta máquina no se cuelan sin token', () => {
+  // Se leen de verdad: lo que hay que impedir es atarse a la IP por la que este
+  // droplet se ve desde Internet cuando no hay puerta.
+  const publicas = Object.values(networkInterfaces()).flat()
+    .filter((i) => i && !i.internal).map((i) => i.address);
+  assert.ok(publicas.length, 'esta máquina tiene alguna interfaz no-loopback');
+  for (const ip of publicas) {
+    assert.equal(bindAceptable(ip, { hayToken: false }).ok, false, `${ip} sin token`);
   }
 });

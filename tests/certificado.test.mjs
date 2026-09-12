@@ -221,7 +221,11 @@ test('⚠⚠ los DOS scripts colocan el certificado ANTES de la orden del serve,
 });
 
 test('⚠ y leen el .env del repo, que es donde el lanzador deja TS_*: publicacion(ENV), no publicacion()', () => {
-  for (const f of ['tailscale-unir.mjs', 'tailscale-serve.mjs', 'cweb.mjs']) {
+  // ⚠ `cweb.mjs` salió de esta lista el 2026-09-12: con «cero tailscale» ya no
+  // publica por la tailnet ni compone `publicacion()`. Sigue leyendo el `.env`
+  // del repo, pero ahora para el TOKEN de la puerta, que es otro contrato y tiene
+  // su propio test (`tests/puerta.test.mjs`).
+  for (const f of ['tailscale-unir.mjs', 'tailscale-serve.mjs']) {
     const s = fuente(f);
     assert.match(s, /const ENV = conEnvDelRepo\(RAIZ\)/, `${f}: no lee el .env`);
     assert.match(s, /const PUB = publicacion\(ENV\)/, `${f}: publicacion sin el entorno del repo`);
@@ -229,10 +233,13 @@ test('⚠ y leen el .env del repo, que es donde el lanzador deja TS_*: publicaci
   }
 });
 
-test('⚠⚠ `cert exportar` NO sale por el chat: el ejecutor de Telegram lo rechaza', () => {
+test('⚠⚠ el ejecutor de Telegram no saca secretos por el chat', () => {
+  // ⚠ Ya no hay `cert exportar` —se fue con «cero tailscale» el 2026-09-12—, pero
+  // la regla que lo motivaba sigue viva y ahora aplica al TOKEN: la URL que da
+  // `url` LLEVA LA LLAVE dentro, así que el chat es su destino legítimo (es la
+  // única forma de pasársela a un móvil) y cualquier orden que imprima un secreto
+  // en crudo NO lo es. Lo que se fija aquí es que no quede ninguna.
   const ex = JSON.parse(readFileSync(join(RAIZ, 'telegram', 'executors', 'cweb.json'), 'utf8'));
-  assert.match(ex.command, /"cert exportar"\*\)/);
-  assert.match(ex.command, /entornos recoger/);
-  assert.ok(ex.ejemplos.includes('cert'));
-  assert.ok(!ex.ejemplos.some((e) => /exportar/.test(e)));
+  assert.ok(!ex.ejemplos.some((e) => /exportar/.test(e)), 'ninguna orden de exportar secretos');
+  assert.ok(!ex.ejemplos.includes('cert'), 'ya no hay certificado que enseñar');
 });

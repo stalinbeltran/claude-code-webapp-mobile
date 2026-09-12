@@ -192,9 +192,17 @@ test('⚠ acceso.mjs delega en los scripts de Tailscale cuando el modo es tailsc
   assert.match(s, /modoDeAcceso\(ENV\)/);
 });
 
-test('⚠ y el ejecutor de Telegram sabe pedir `acceso`', () => {
-  const ex = JSON.parse(fuente('telegram', 'executors', 'cweb.json'));
-  assert.ok(ex.ejemplos.includes('acceso'));
+test('⚠ el ejecutor de Telegram pasa lo que escribes, y sin órdenes muertas', () => {
+  // ⚠ Este test pedía `acceso`, que se fue el 2026-09-12 con «cero tailscale».
+  // Lo que sigue importando es lo que lo hacía útil: que `{{input}}` llegue al
+  // script —sin eso el ejecutor contesta siempre el estado, pase lo que pase— y
+  // que los ejemplos no anuncien órdenes que ya no existen.
+  const ex = JSON.parse(readFileSync(join(RAIZ, 'telegram', 'executors', 'cweb.json'), 'utf8'));
+  assert.match(ex.command, /A="\{\{input\}\}"/, 'sin esto no llega lo que escribes');
+  assert.match(ex.command, /cweb\.mjs \$\{A:-estado\}/, 'y sin argumentos, el estado');
+  for (const muerta of ['acceso', 'tailscale', 'cert']) {
+    assert.ok(!ex.ejemplos.includes(muerta), `«${muerta}» ya no existe y no puede anunciarse`);
+  }
 });
 
 test('⚠⚠ el manifest pide credenciales: detrás de Access, sin esto la PWA no se instala', () => {

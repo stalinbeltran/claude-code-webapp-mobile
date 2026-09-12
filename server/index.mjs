@@ -7,40 +7,26 @@
 // nada**: en la fase 2 es sólo lectura. El contrato del formato vive donde su
 // productor, en `telegram-coordinator/docs/log-de-mensajes.md`.
 //
-// ⚠⚠ NUNCA ATA UN COMODÍN, Y ESO ES EL FRENO. Quien alcance este puerto llega al
-// mismo sitio que un mensaje de Telegram —una máquina donde `claude` corre con
-// `bypassPermissions`— y **la allowlist del bot no lo cubre**. Así que se ata a
-// direcciones nombradas y comprobadas, nunca a `0.0.0.0` ni a `::`, que atarían
-// también la IP **pública** del droplet. Hay tests que fallan si alguien lo
-// cambia: una invariante que importa es un test, no una frase (R14).
+// ⚠⚠ SE ATA A UN PUERTO PÚBLICO SI Y SÓLO SI HAY TOKEN. Ésa es la invariante, y
+// desde el 2026-09-12 sustituye a la de antes («sólo loopback»).
 //
-// ⚠⚠ Y DESDE EL 2026-09-12 ATA TAMBIÉN LA IP DE LA TAILNET, no sólo loopback.
-// El motivo está medido ese día: `tailscale serve` enruta **por la cabecera
-// `Host`**, así que la app se veía por su nombre y **por IP daba 404**:
+// Qué cambió: el dueño decidió **cero Tailscale**. Sin Tailscale y sin túnel, la
+// única forma de que su móvil llegue es el puerto público del droplet — y por ese
+// puerto se llega al mismo sitio que un mensaje de Telegram, una máquina donde
+// `claude` corre con `bypassPermissions`, **sin la allowlist del bot**.
 //
-//     http://100.79.201.53:8080/          -> 404 page not found
-//     http://dev.tail376e31.ts.net:8080/  -> 200
+// Así que **la exposición y la puerta son la misma decisión** y viven juntas: sin
+// token no se ata nada público, se dice en voz alta y se queda en loopback.
+// Separarlas sería permitir que una llegue sin la otra, que es exactamente cómo
+// se queda algo abierto sin que nadie lo decida. La puerta está en
+// `server/puerta.mjs`, con su porqué.
 //
-// O sea que llegar dependía de que el móvil resolviera MagicDNS, y cuando no lo
-// hacía **no había ninguna dirección que funcionara** — ni por nombre ni por IP.
-// Atándose a la IP de la tailnet hay una dirección que no depende del DNS de
-// nadie, que es lo que el dueño pidió.
+// ⚠ Loopback NO necesita token: quien ya está dentro de la máquina está dentro.
+// De ahí cuelgan la sonda de `cweb estado` y el túnel SSH de emergencia.
 //
-// ⚠ Y NO afloja el freno, que es lo primero que hay que comprobar al leer esto:
-//   · la 100.x es de la tailnet (CGNAT, 100.64.0.0/10) y **no se enruta desde
-//     Internet**; el conjunto de quien puede llegar es el mismo que ya podía por
-//     `tailscale serve`, que lleva publicando en esa misma IP desde el principio.
-//   · `tailscale` mete su propio `-A ts-input -i tailscale0 -j ACCEPT`, así que
-//     esto no necesita abrir nada en `ufw` — y no se abre.
-//   · lo único que se pierde son las cabeceras de identidad que pone `serve`, y
-//     **esta app no las lee** (comprobado el 2026-09-12: no aparecen en
-//     `server/` ni en `web/`).
-// Lo que sigue prohibido, y ahora con test, es el comodín.
-//
-// ⚠ Loopback se ata SIEMPRE, además: de ahí cuelgan la sonda de `cweb estado` y
-// el túnel SSH de emergencia. Perder eso por ganar la IP sería cambiar un
-// problema por otro.
-//
+// ⚠ El token viaja en claro, porque no hay TLS. Es el mismo trato que ya se
+// aceptó para `foveal-vision-web` en esta flota, y va escrito en el README para
+// que sea una decisión y no un descuido.
 // ⚠ Y NO deduce dónde está el log: se lo tienen que decir con `DATA_DIR` (R4).
 // Que el coordinador esté «al lado» es una coincidencia del sistema de ficheros,
 // no un contrato — y aquí además puede estar en otra máquina. Si no se lo dicen,
@@ -56,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { listarSesiones, leerMensajes, leerLatido, encolarEnvio, ejecutorDe, PAGINA } from './datos.mjs';
 import { crearVigilante } from './eventos.mjs';
+import { autorizado, cookieDe, COOKIE, esLocal, token } from './puerta.mjs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
@@ -69,59 +56,58 @@ export const HOST = '127.0.0.1';
  * Internet). Todo lo demás se rechaza, empezando por los comodines.
  */
 /**
- * La IP v4 de esta máquina en la tailnet, o null.
+ * ¿Puede este servidor atarse a esta dirección?
  *
- * ⚠ Se PREGUNTA a `tailscale`, no se deduce de las interfaces: la respuesta de
- * `tailscale ip -4` es el dato, y leer `ip addr` sería adivinar cuál de las
- * direcciones de la máquina es la buena. Si no hay tailscale, o tarda, no es un
- * fallo: es que todavía no hay (ver el reintento en `arrancar`).
+ * ⚠⚠ Todo depende de `hayToken`, y por eso es un argumento y no una lectura de
+ * dentro: la decisión «se expone» no puede tomarse en un sitio y comprobarse en
+ * otro. Sin token, sólo loopback; con token, cualquier dirección de la máquina,
+ * porque entonces hay una puerta.
  */
-export function ipDeTailscale() {
-  try {
-    const out = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8', timeout: 5000 });
-    const ip = out.trim().split('\n')[0].trim();
-    return ip || null;
-  } catch { return null; }
-}
-
-export function bindAceptable(dir) {
+export function bindAceptable(dir, { hayToken = false } = {}) {
   const d = String(dir ?? '').trim();
   if (d === '127.0.0.1' || d === '::1') return { ok: true, clase: 'loopback' };
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(d)) {
-    return { ok: true, clase: 'tailnet' };
+  if (d === '') return { ok: false, motivo: 'dirección vacía' };
+  if (!hayToken) {
+    return { ok: false,
+      motivo: 'NO hay token en esta máquina, y sin puerta no se abre un puerto por ' +
+        'el que se llega a un shell. Créalo con: cweb instalar' };
   }
-  if (d === '' || d === '0.0.0.0' || d === '::' || d === '*') {
-    return { ok: false, motivo: 'un comodín ataría también la IP PÚBLICA del droplet' };
-  }
-  return { ok: false, motivo: 'no es loopback ni de la tailnet (100.64.0.0/10)' };
+  if (d === '0.0.0.0' || d === '::' || d === '*') return { ok: true, clase: 'comodín' };
+  return { ok: true, clase: 'nombrada' };
 }
 
 /**
- * A qué direcciones se ata, dado el entorno y la IP que tenga la tailnet.
+ * A qué direcciones se ata, dado el entorno y si hay token.
  *
- * `CWEB_BIND` (coma-separado) manda; si no, loopback + la de la tailnet.
+ * Por defecto: **el comodín si hay token** —es lo que hace que se vea desde el
+ * móvil por la IP pública, lo único que queda sin Tailscale— y **sólo loopback si
+ * no lo hay**.
  *
- * ⚠ Loopback NO se puede quitar ni con `CWEB_BIND`: es de donde cuelgan la sonda
- * de `cweb estado` y el túnel SSH, o sea la forma de mirar esto cuando lo demás
- * falla. Una salida de emergencia que se pueda desconfigurar no es una salida.
+ * ⚠ Un comodín ya cubre loopback, así que cuando está no se añade aparte: atar
+ * `127.0.0.1:<puerto>` después de `0.0.0.0:<puerto>` da `EADDRINUSE`, y eso se
+ * leería como «el puerto está ocupado» cuando lo ocupa uno mismo.
  *
- * ⚠ Y lo rechazado se DEVUELVE, no se traga: atarse a menos de lo que te
- * pidieron, en silencio, es la clase de fallo que se descubre desde el móvil.
+ * ⚠ Y lo rechazado se DEVUELVE, no se traga: atarse a menos de lo que te pidieron,
+ * en silencio, es la clase de fallo que se descubre desde el móvil.
  *
  * @returns {{escuchar: string[], rechazadas: {dir: string, motivo: string}[]}}
  */
-export function direccionesDeEscucha({ env = {}, ipTailnet = null } = {}) {
+export function direccionesDeEscucha({ env = {}, hayToken = false } = {}) {
   const pedidas = String(env.CWEB_BIND ?? '').split(',').map((d) => d.trim()).filter(Boolean);
-  const candidatas = pedidas.length ? pedidas : [HOST, ...(ipTailnet ? [ipTailnet] : [])];
+  const candidatas = pedidas.length ? pedidas : (hayToken ? ['0.0.0.0'] : [HOST]);
 
-  const escuchar = [HOST];
+  const escuchar = [];
   const rechazadas = [];
   for (const d of candidatas) {
     if (escuchar.includes(d)) continue;
-    const v = bindAceptable(d);
+    const v = bindAceptable(d, { hayToken });
     if (v.ok) escuchar.push(d);
     else rechazadas.push({ dir: d, motivo: v.motivo });
   }
+
+  const hayComodin = escuchar.some((d) => ['0.0.0.0', '::', '*'].includes(d));
+  if (!hayComodin && !escuchar.includes(HOST)) escuchar.unshift(HOST);
+
   return { escuchar, rechazadas };
 }
 
@@ -129,6 +115,8 @@ export function direccionesDeEscucha({ env = {}, ipTailnet = null } = {}) {
  *  deducir: `web/` viaja en este mismo repo, así que no es un acoplamiento entre
  *  piezas — es la pieza. Lo que no se deduce nunca es dónde está el log (R4). */
 const WEB = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'web');
+/** La raíz del repo: donde el lanzador deja el `.env` con `CWEB_TOKEN`. */
+const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
@@ -193,9 +181,53 @@ function json(res, code, cuerpo) {
  * `crearBot()` en el coordinador: así el camino real se puede probar sin ocupar
  * un puerto y sin depender de que haya un coordinador vivo.
  */
+/**
+ * El token vigente, releído del disco como mucho cada 5 s.
+ *
+ * ⚠ La caché y su regla de caducidad van juntas (regla 3 de escritura): esto se
+ * llama en CADA petición —y el flujo de eventos hace muchas—, así que sin caché
+ * se lee el disco todo el rato; con caché eterna, crear el token exigiría
+ * reiniciar y `cweb instalar` ya reinicia, pero un token puesto a mano en el
+ * `.env` no se vería nunca.
+ */
+let _tok = { valor: null, cuando: 0 };
+function tokenVigente() {
+  const ahora = Date.now();
+  if (_tok.valor === null || ahora - _tok.cuando > 5000) {
+    _tok = { valor: token({ env: process.env, raizRepo: RAIZ }), cuando: ahora };
+  }
+  return _tok.valor;
+}
+
 export function crearServidor(raiz, vigilante = crearVigilante(raiz)) {
   const server = createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
+
+    // ─── LA PUERTA ───────────────────────────────────────────────────────────
+    // Va LO PRIMERO, antes de cualquier ruta: nada se sirve sin pasar por aquí,
+    // ni un estático. Un guardián que hay que acordarse de llamar en cada ruta
+    // nueva no es un guardián. Ver `server/puerta.mjs` para el porqué.
+    const permiso = autorizado({
+      local: esLocal(req.socket?.localAddress),
+      consulta: url.searchParams.get('t') || '',
+      cookies: req.headers.cookie || '',
+      tokenBueno: tokenVigente(),
+    });
+    if (!permiso.ok) {
+      // ⚠ El mismo 401 para «token malo» y «no hay token»: el motivo detallado va
+      // al log de la unidad, no al que llama. Decirle a quien no ha entrado por
+      // qué no ha entrado es enseñarle cómo entrar.
+      res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end('401 — hace falta el token. Pídelo por Telegram: /use cweb → url\n');
+    }
+    if (permiso.via === 'query') {
+      // La cookie es lo que hace que las llamadas a `/api/…` de después entren sin
+      // arrastrar el token en cada URL. `HttpOnly` para que no la lea un script;
+      // sin `Secure` porque no hay TLS, y fingirlo rompería la cookie entera.
+      res.setHeader('Set-Cookie',
+        `${COOKIE}=${url.searchParams.get('t')}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     if (url.pathname === '/api/eventos') return vigilante.suscribir(req, res);
 
@@ -347,32 +379,24 @@ export function arrancar() {
     return server;
   };
 
-  const { escuchar, rechazadas } = direccionesDeEscucha({ env: process.env, ipTailnet: ipDeTailscale() });
+  const hayToken = Boolean(token({ env: process.env, raizRepo: RAIZ }));
+  const { escuchar, rechazadas } = direccionesDeEscucha({ env: process.env, hayToken });
+
   for (const { dir, motivo } of rechazadas) {
-    console.error(`⚠ NO me ato a ${dir}: ${motivo}.`);
+    console.error(`⚠⚠ NO me ato a ${dir}: ${motivo}`);
   }
-  for (const host of escuchar) atar(host, host === HOST);
+  for (const host of escuchar) atar(host, escuchar.length === 1 || host === HOST);
 
   if (r.porDefecto) console.log('   (nadie me dijo DATA_DIR: uso el sitio de siempre)');
-  if (escuchar.length === 1) {
-    // ⚠⚠ Y SE REINTENTA, porque esto es una CARRERA de arranque y no un fallo.
-    // La unidad puede levantarse antes que `tailscaled`, y entonces no hay IP de
-    // tailnet que atar — la app quedaría sólo en loopback hasta que alguien la
-    // reiniciara a mano, que es justo el tipo de cosa que nadie hace en un dev
-    // recién nacido. Se mira cada 10 s durante 5 min y se ata en cuanto aparece.
-    let quedan = 30;
-    const espera = setInterval(() => {
-      const ip = ipDeTailscale();
-      if (ip && bindAceptable(ip).ok) {
-        clearInterval(espera);
-        console.log(`   (tailscale tardó en levantar: me ato también a ${ip})`);
-        atar(ip, false);
-      } else if (--quedan <= 0) {
-        clearInterval(espera);
-        console.log('   Sin IP de tailnet tras 5 min: sólo loopback. Desde fuera, `tailscale serve` o un túnel SSH.');
-      }
-    }, 10_000);
-    espera.unref();
+  if (hayToken) {
+    // ⚠ El token NO se imprime, ni aquí ni en un error: el log de esta unidad lo
+    // lee `cweb log` desde Telegram. La URL con el token la da `cweb url`, que es
+    // un comando que se pide, no algo que quede escrito en un journal.
+    console.log('   Puerta: hace falta el token (`?t=…`) salvo desde 127.0.0.1.');
+    console.log('   La URL para el móvil:  node scripts/cweb.mjs url');
+  } else {
+    console.log('   SIN token: sólo escucho en loopback, así que desde el móvil NO se llega.');
+    console.log('   Crea la puerta y ábrelo con:  node scripts/cweb.mjs instalar');
   }
 
   return servidores[0];

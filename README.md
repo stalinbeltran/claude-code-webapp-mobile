@@ -56,6 +56,76 @@ certificado que desde el 2026-09-11 **viaja con la flota** en vez de pedirse en
 cada dev: ver [§ Por qué ya no hay certificado](#por-qué-ya-no-hay-certificado-2026-09-11)
 y, justo debajo, [§ Y cómo se recupera](#y-cómo-se-recupera-el-certificado-viaja-con-la-flota-2026-09-11).
 
+### 🔑 Cómo se entra hoy (2026-09-12): IP pública + token. Cero Tailscale
+
+**Decisión del dueño: «no vamos a usar tailscale. Ahora cero tailscale».** Así que
+no hay nodo, ni `serve`, ni MagicDNS, ni certificado, ni túnel, ni app que
+instalar. Queda una URL que se pega en el navegador:
+
+```
+http://<ip-publica-del-droplet>:8020/?t=<token>
+```
+
+`cweb url` te la da, y **la comprueba** (200) antes de dártela.
+
+⚠⚠ **Esa URL ES LA LLAVE.** Quien la tenga entra a esta máquina, donde `claude`
+corre con `bypassPermissions` y **sin la allowlist del bot**. No se reenvía; si se
+escapa, se rota con `cweb instalar --token-nuevo`.
+
+#### La invariante, y es la única que se paga con la máquina
+
+> **Se ata a un puerto público si y sólo si hay token.**
+
+Sin token la web **sólo escucha en loopback** y lo dice. No son dos pasos: son la
+misma decisión, y viven en el mismo sitio (`server/index.mjs` +
+`server/puerta.mjs`) porque separarlas es exactamente cómo se queda algo abierto
+sin que nadie lo decida. Por eso `cweb instalar` hace las **tres** cosas en un
+comando y **en este orden**: token → unidad → `ufw allow`. Al revés habría un
+instante con el puerto abierto y sin puerta.
+
+```console
+$ curl -o /dev/null -w '%{http_code}' http://<ip-publica>:8020/
+401                       # sin token, desde fuera: no se entra ni al armazón
+
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8020/api/salud
+200                       # por loopback sí: de ahí cuelgan la sonda y el túnel SSH
+```
+
+Tres decisiones más, con test:
+
+1. **Loopback nunca pide token.** Quien ya está dentro de la máquina está dentro,
+   y de ahí cuelgan la sonda de `cweb estado` y el túnel SSH de emergencia.
+2. **La puerta va ANTES de las rutas**, no dentro de cada una: un guardián que hay
+   que acordarse de llamar en cada ruta nueva no es un guardián.
+3. **`?t=` deja una cookie**, para que las llamadas a `/api/…` de después entren
+   sin arrastrar el token en cada URL. La comparación es en tiempo constante: un
+   `===` sobre un secreto filtra su prefijo, y aquí el secreto es la única barrera.
+
+#### ⚠ Lo que esto cuesta, dicho entero
+
+- **El token viaja en claro**, porque no hay TLS. Quien vea el tráfico lo ve. Es
+  el mismo trato que ya se aceptó para `foveal-vision-web` en esta flota, y se
+  escribe aquí para que sea una decisión y no un descuido.
+- **No se puede instalar como app** — ya no se podía desde que se quitó el
+  certificado, y ahora además da igual: era lo que el dueño pidió descartar.
+- **El token cambia al rehacer el dev**, salvo que viaje en el llavero del
+  lanzador como `CWEB_TOKEN`. Si no, se pide otra vez con `/use cweb` → `url`.
+
+#### Por qué se abandonó todo lo anterior
+
+Cuatro intentos, y **todos fallaron con la misma forma**: llegar dependía de algo
+que se pone en otra parte.
+
+| | dependía de | cómo falló |
+|---|---|---|
+| HTTPS con certificado | que Let's Encrypt no te limite | 429: 5 certificados por semana y por nombre, y el nombre se reusa en cada dev |
+| `tailscale serve` por nombre | que el nodo recupere `dev` | entró como `dev-2` y ninguna dirección servía |
+| el mismo, por IP | nada — pero **enruta por `Host`** | `http://<ip>:8080/` → **404** |
+| túnel de Cloudflare | un dominio y una cuenta | nunca se llegó a probar con dominio real |
+
+Una IP y un token no dependen de nada de eso. **Lo anterior queda como historia en
+las secciones de abajo; no lo leas como el presente.**
+
 ### El link: llega al arrancar el dev, y si no, se pide
 
 **Al arrancar.** `launch` le pregunta su dirección a cada servicio y la imprime al
