@@ -127,10 +127,42 @@ Tres decisiones que hay que respetar si se toca, y las tres tienen test:
    `resolverDireccion()`, no en quien llama: un consumidor que se olvide de
    comprobarlo no puede hacer daño.
 
-8 tests en `tests/contrato-url.test.mjs` —uno de ellos **reproduce el parser del
+#### ⚠⚠ Y una segunda vuelta el mismo día: elegir CUÁL de las direcciones
+
+`esDireccion()` impide que se entregue una **orden** como si fuera una dirección.
+No decide **cuál** de varias direcciones bien formadas es la buena, y ahí quedaban
+tres huecos. Los encontró el agente `verificador` buscando cómo romperlo, y los
+tres se reprodujeron ejecutando el código:
+
+| | daba | por qué |
+|---|---|---|
+| dos puertas **propias** publicadas | la **vieja**, y a la vez avisaba de que esa sobraba | `propios[0]`: se elegía por posición |
+| reserva por texto | `http://dev:8080` — el nombre **corto** | el primer `://` del texto |
+| reserva por texto, con el JSON vacío | la dirección **de otro nodo**, y con `avisos` **vacío** | el texto nunca comprobaba de quién era |
+
+Los tres son el mismo origen, y es el fallo del 2026-09-10 **a medio arreglar**:
+aquél dejó escrito que no se coge «el primer `https://` que salga» y se arregló
+comparando **de quién** es cada host — pero quedó sin comparar **cuál** de los
+propios es el declarado, y el camino de reserva no se tocó.
+
+Dos reglas más, y las dos tienen test:
+
+4. **Entre varias propias gana la DECLARADA**, no la primera. Y si lo declarado
+   no está publicado, se entrega lo que hay **diciéndolo** — desaparecerá en
+   cuanto alguien reponga el serve. ⚠ Lo que nunca puede pasar es que la que se
+   entrega sea la misma que se marca como sobrante: un dato que se contradice con
+   el consejo de al lado no se sigue, se ignoran los dos.
+5. **El camino de reserva comprueba de quién es**, y si no hay nombre con el que
+   comparar dice **NO SÉ** en vez de entregar a ciegas. Es el criterio del freno
+   del coordinador: dar una dirección sin comprobar de quién es es exactamente lo
+   que costó la app entera.
+
+13 tests en `tests/contrato-url.test.mjs` —uno **reproduce el parser del
 lanzador** y demuestra el engaño sobre el texto para humanos— y uno más en
 `digital-ocean-dropplet-auto-launching/tests/test_url_servicio.py`, que fija que
-el descriptor pida `--plano`; **ése falla con el valor anterior** (8/9).
+el descriptor pida `--plano`. **Miden lo que arreglan**: los 5 de esta segunda
+vuelta fallan con el código de la primera, y el del lanzador falla con el valor
+anterior del descriptor (8/9).
 
 ### Si algo va mal
 

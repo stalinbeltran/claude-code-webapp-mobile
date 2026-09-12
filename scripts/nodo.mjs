@@ -716,9 +716,69 @@ export function resolverDireccion({
       motivo: 'el serve sólo publica nombres que este nodo ya no tiene' };
   }
 
-  const candidata = sabe && propios.length
-    ? `${esquemaPublicado(serve, (String(propios[0]).match(/:(\d+)$/) || [])[1] || '') ?? pub.esquema}://${propios[0]}`
-    : (String(serveTexto).match(/https?:\/\/\S+/) || [])[0];
+  const avisosPrevios = [];
+  const puertoDe = (clave) => (String(clave).match(/:(\d+)$/) || [])[1] || '';
+  const esquemaDe = (clave) => esquemaPublicado(serve, puertoDe(clave)) ?? pub.esquema;
+  const componer = (clave) => `${esquemaDe(clave)}://${clave}`;
+
+  let candidata;
+  if (sabe && propios.length) {
+    // ⚠⚠ ENTRE VARIOS PROPIOS GANA EL DECLARADO, NO EL PRIMERO — arreglado el
+    // 2026-09-12 tras reproducirlo. `propios` sale de `Object.keys(Web)` y ahí el
+    // orden no significa nada, exactamente igual que en el fallo del 2026-09-10;
+    // aquello se arregló comparando de QUIÉN es cada host, y quedó sin comparar
+    // CUÁL de los propios es el que está declarado.
+    //
+    // Lo que producía, medido con `pub` = https/8443 y las dos puertas vivas:
+    //     direccion → http://dev…:8080/     ← la vieja
+    //     avisos    → «sobra publicado: dev…:8080 (http)»
+    // O sea que entregaba la dirección Y a la vez decía que se borrara. Un
+    // consejo que se contradice con el dato de al lado no se sigue: se ignoran
+    // los dos.
+    const declarada = propios.find(
+      (c) => puertoDe(c) === String(pub.puerto) && esquemaDe(c) === pub.esquema);
+    candidata = componer(declarada ?? propios[0]);
+    if (!declarada) {
+      // ⚠ Y si lo declarado NO está publicado, la que se da es un apaño: se dice.
+      // Callarlo dejaría una dirección que funciona hoy y desaparece en cuanto
+      // alguien reponga el serve, sin nada que lo explicara.
+      avisosPrevios.push(
+        `⚠ Lo declarado (${pub.bandera}) NO está publicado. Te doy ` +
+        `${componer(propios[0])}, que es lo que hay, pero desaparecerá en cuanto ` +
+        `se reponga el serve. Para dejarlo como toca:\n` +
+        `  sudo -n tailscale serve reset\n  node scripts/tailscale-serve.mjs`);
+    }
+  } else {
+    // ⚠⚠ EL CAMINO DE RESERVA TAMBIÉN COMPRUEBA DE QUIÉN ES, desde el 2026-09-12.
+    // Sin `--json` legible se leía el TEXTO y se cogía «el primer `https?://` que
+    // saliera», que es literalmente la frase que el arreglo del 2026-09-10 dejó
+    // escrita como lo que NO hay que hacer — y aquí seguía haciéndose.
+    //
+    // Dos cosas medidas ese día, las dos con la salida real de esta máquina:
+    //   · el primer match es `http://dev:8080`, el nombre CORTO, y todo el resto
+    //     del código usa el FQDN a propósito (este nodo se une con
+    //     `--accept-dns=false` y no resuelve su propio nombre corto);
+    //   · con el JSON diciendo «nada publicado» y el texto aún enseñando un
+    //     huérfano, devolvía `http://dev-2…:8080/` —de OTRO nodo— y con `avisos`
+    //     VACÍO. Son cuatro llamadas a `tailscale` en instantes distintos: que
+    //     discrepen no es hipotético.
+    //
+    // Ahora se coge el que apunta a ESTE nodo. Y si no se puede saber de quién es
+    // —no hay nombre con el que comparar—, NO se da ninguna: es el `NO SÉ` del
+    // freno del coordinador. Entregar una dirección sin comprobar de quién es fue
+    // exactamente lo que costó la app entera.
+    const mio = String(dnsNodo ?? '').replace(/\.$/, '').toLowerCase();
+    const delTexto = String(serveTexto).match(/https?:\/\/\S+/g) || [];
+    candidata = mio
+      ? delTexto.find((u) => { try { return new URL(u).hostname.toLowerCase() === mio; } catch { return false; } })
+      : undefined;
+    if (!candidata && delTexto.length) {
+      return { direccion: null, avisos: huerfano ? [huerfano] : [],
+        motivo: mio
+          ? `el serve publica ${delTexto.length} dirección(es) y ninguna es de este nodo (${mio})`
+          : 'no sé cómo se llama este nodo, así que no puedo comprobar de quién es lo publicado' };
+    }
+  }
 
   // ⚠ El freno, y va aquí y no en quien llama: si lo que salió no tiene forma de
   // dirección, NO es una dirección, venga de donde venga. Un consumidor que se
@@ -730,7 +790,7 @@ export function resolverDireccion({
         : 'este server todavía no está en la tailnet' };
   }
 
-  const avisos = [];
+  const avisos = [...avisosPrevios];
   const deriva = nombrePedido ? avisoDeDeriva(nombrePedido, dnsNodo, pub) : '';
   if (deriva) avisos.push(deriva);
   if (huerfano) avisos.push(huerfano);
