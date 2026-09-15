@@ -230,8 +230,9 @@ createApp({
      *
      * ⚠ La comprobación AVISA PERO NO BLOQUEA (`forzar`), que es la misma regla
      * que `/use` con `requiere` en el coordinador: mira desde ESTE móvil y en
-     * ESTE momento, así que un falso negativo —Tailscale levantándose, un DNS
-     * lento— que impidiera guardar la dirección buena sería peor que el aviso.
+     * ESTE momento, así que un falso negativo —el móvil recuperando cobertura, la
+     * web reiniciándose— que impidiera guardar la dirección buena sería peor que
+     * el aviso.
      * Lo que sí evita es el fallo caro: guardar una dirección mal tecleada y
      * dejar el icono del móvil saltando para siempre a un sitio que no existe.
      */
@@ -261,8 +262,9 @@ createApp({
         probando.value = false;
         if (!vale) {
           errorDireccion.value = `No he conseguido alcanzar ${r.origen}. ` +
-            'Comprueba que Tailscale está encendido y que la dirección es la que te dio ' +
-            '"/use cweb" → "url".';
+            'La causa más común es que la máquina se rehízo: cambia la IP Y el token, ' +
+            'así que la dirección guardada deja de valer entera. Pide la de ahora con ' +
+            '"/use cweb" → "url" y pégala tal cual, con su "?t=".';
           puedeForzar.value = true;
           return;
         }

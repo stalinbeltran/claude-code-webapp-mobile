@@ -32,6 +32,38 @@ const DATOS = process.env.CWEB_DATA_DIR
 const sh = (cmd) => { try { return execSync(cmd, { encoding: 'utf8', timeout: 20000 }).trim(); } catch (e) { return (e.stdout || '') + (e.stderr || ''); } };
 const activo = () => sh(`systemctl is-active ${UNIDAD}`) === 'active';
 
+/**
+ * A qué direcciones está atado el proceso VIVO, preguntándoselo al kernel.
+ *
+ * ⚠⚠ ESTO EXISTE POR EL FALSO VERDE DEL 2026-09-15, y es la corrección que más
+ * importa de este fichero. `estado` decía «abierto con token» porque había un
+ * token EN DISCO, mientras el proceso vivo seguía atado sólo a 127.0.0.1 — lo
+ * había arrancado el aprovisionamiento antes de que el token existiera, y el
+ * bind se decide AL ARRANCAR (`server/index.mjs`). Resultado: los cuatro mandos
+ * en verde, el móvil sin poder entrar, y ningún sitio donde leer la diferencia.
+ *
+ * La regla del proyecto es la de siempre: se comprueba el ARTEFACTO, no lo que
+ * debería haber pasado. Aquí el artefacto es el socket.
+ *
+ * Devuelve `null` si no se puede saber (sin `ss`), que NO es lo mismo que
+ * «loopback»: un `NO SÉ` se dice, no se convierte en un veredicto.
+ */
+function bindReal() {
+  const r = sh(`ss -ltnH 'sport = :${PUERTO}'`);
+  if (!r || /command not found|No such file/i.test(r)) return null;
+  const dirs = r.split('\n').map((l) => (l.trim().split(/\s+/)[3] || '')).filter(Boolean);
+  if (!dirs.length) return { publico: false, dirs: [] };
+  const publico = dirs.some((d) => /^(0\.0\.0\.0|\*|\[?::\]?):/.test(d));
+  return { publico, dirs };
+}
+
+/** ¿Deja pasar ufw este puerto? `null` = no se pudo preguntar (sin sudo, sin ufw). */
+function ufwAbierto() {
+  const r = sh(`sudo -n ufw status 2>/dev/null`);
+  if (!r || !/Status:\s*active/i.test(r)) return null;
+  return new RegExp(`^${PUERTO}(/tcp)?\\s+ALLOW`, 'mi').test(r);
+}
+
 /** ¿Contesta la app? Se le pregunta a ELLA, no al puerto: un puerto abierto no
  *  significa que la app responda (decisión 3 de `cerrable.mjs`). */
 function pregunta() {
@@ -77,6 +109,14 @@ function instalar() {
   console.log(t ? `🔑 Puerta: ${nuevoToken ? 'token NUEVO creado' : 'token listo'} (no se imprime; pídelo con \`url\`)`
                 : '❌ No pude crear el token: sin él la web sólo escuchará en loopback.');
 
+  // ⚠⚠ ESTA UNIDAD TIENE QUE SER EQUIVALENTE A LA QUE ESCRIBE EL LANZADOR
+  // (`build_service_section` en do_droplet.py), porque las DOS escriben el mismo
+  // fichero y gana la última: en un dev recién nacido gana la del lanzador —el
+  // `install` corre antes—, y en cuanto alguien hace `instalar` a mano gana ésta.
+  // Si difieren, el servicio se comporta distinto según su historia, que es
+  // indepurable. Divergían en el `ExecStart`: aquélla usa `bash -lc`, que carga
+  // ~/.bashrc y con él ~/.config/dev-secrets.env; ésta usaba `/usr/bin/env node`,
+  // que no carga nada. Alineado el 2026-09-15, con test.
   const unit = `[Unit]
 Description=claude-web (la web de lectura de las conversaciones de c)
 After=network-online.target
@@ -87,7 +127,7 @@ User=${process.env.USER || 'deploy'}
 WorkingDirectory=${RAIZ}
 Environment=DATA_DIR=${DATOS}
 Environment=CWEB_PORT=${PUERTO}
-ExecStart=/usr/bin/env node server/index.mjs
+ExecStart=/bin/bash -lc 'exec node server/index.mjs'
 Restart=always
 RestartSec=5
 
@@ -100,6 +140,18 @@ WantedBy=multi-user.target
     sh('sudo -n systemctl daemon-reload');
     sh(`sudo -n systemctl enable ${UNIDAD}`);
     console.log(`✅ Unidad instalada en ${destino}.`);
+
+    // ⚠⚠ REINICIAR, Y AQUÍ, NO «arráncala tú». Es el fallo del 2026-09-15: el
+    // bind se decide AL ARRANCAR, así que crear el token sin reiniciar deja al
+    // proceso vivo en loopback con un token en disco que no está usando —y los
+    // mandos en verde—. `restart` y no `start` porque lo normal es que la unidad
+    // YA esté corriendo (la arrancó el aprovisionamiento antes de que hubiera
+    // token): un `start` sobre algo activo no hace nada, que es justo lo que
+    // pasó. Va DESPUÉS del token y ANTES de ufw, para que no exista ni un
+    // instante con el puerto abierto y sin puerta.
+    const err = sh(`sudo -n systemctl restart ${UNIDAD} 2>&1`);
+    console.log(err ? `⚠ No pude reiniciar ${UNIDAD}: ${err.split('\n')[0]}` : `🔄 ${UNIDAD} reiniciada (ya usa el token).`);
+
     // El puerto, DESPUÉS del token. Y se dice si no se pudo: una web que no se ve
     // desde el móvil y no explica por qué manda a depurar la app, que está bien.
     if (t) {
@@ -109,7 +161,22 @@ WantedBy=multi-user.target
         : `⚠ No pude abrir el puerto ${PUERTO} en ufw: ${r.split('\n')[0] || 'sin salida'}\n` +
           `   A mano:  sudo ufw allow ${PUERTO}/tcp`);
     }
-    console.log('   Arráncala con: arrancar     · y pide el enlace con: url');
+
+    // ⚠ Y se COMPRUEBA, que es lo que distingue este `instalar` del anterior.
+    // `Result=success` no dice que se hiciera lo que pediste (regla del
+    // proyecto, 2026-09-08): lo que lo dice es el socket.
+    esperaAQueConteste();
+    const b = bindReal();
+    if (b === null) console.log('❔ No pude mirar el bind real (sin `ss`): comprueba con `estado`.');
+    else if (t && !b.publico) {
+      console.log(`❌ Hay token pero sigue atada sólo a ${b.dirs.join(', ') || 'nada'}.`);
+      console.log(`   Mira el log:  node scripts/cweb.mjs log`);
+    } else if (t) {
+      console.log('✅ Atada al puerto público CON token.');
+    }
+    // ⚠ El enlace NO se imprime aquí: esto corre dentro del aprovisionamiento y
+    // acabaría en el log del lanzador. Se pide aparte, y eso es deliberado.
+    console.log('   Pide el enlace con:  url');
   } catch (e) {
     console.log(`❌ No pude instalar la unidad (¿sudo sin contraseña?): ${e.message}`);
     console.log('   El fichero que hace falta, para ponerlo a mano:\n');
@@ -124,8 +191,27 @@ function estado() {
   const hayDatos = existsSync(join(DATOS, 'mensajes'));
   console.log(`web de lectura: ${viva ? '🟢 corriendo' : '🔴 parada'}   (unidad ${UNIDAD})`);
   const hayToken = Boolean(tokenDeLaPuerta({ env: ENV, raizRepo: RAIZ }));
-  console.log(`puerto        : ${PUERTO}${hayToken ? ', abierto con token en la puerta' : ', SÓLO en 127.0.0.1 (no hay token)'}`);
-  console.log(`puerta        : ${hayToken ? '🟢 hay token (`url` da el enlace)' : '🔴 SIN token — `instalar` lo crea'}`);
+  // ⚠⚠ El bind se lee del SOCKET, nunca del disco. Tener token en disco no
+  // significa que el proceso vivo lo esté usando: el bind se decide al arrancar.
+  const b = viva ? bindReal() : { publico: false, dirs: [] };
+  const ufw = ufwAbierto();
+  console.log(`puerto        : ${PUERTO}  ${b === null ? '❔ no sé a qué está atada (sin `ss`)'
+    : b.dirs.length ? `atada a ${b.dirs.join(', ')}` : 'nadie escuchando'}`);
+  console.log(`puerta        : ${hayToken ? '🟢 hay token' : '🔴 SIN token'}`);
+  console.log(`cortafuegos   : ${ufw === null ? '❔ no pude preguntar a ufw' : ufw ? `🟢 ${PUERTO}/tcp permitido` : `🔴 ${PUERTO}/tcp NO permitido`}`);
+
+  // ⚠⚠ EL DESACUERDO SE GRITA. Hay token y el proceso no lo usa = el falso verde
+  // del 2026-09-15, y es indistinguible de «todo bien» si no se dice aquí.
+  if (viva && hayToken && b && !b.publico) {
+    console.log('');
+    console.log('❌ HAY TOKEN PERO LA WEB NO LO ESTÁ USANDO: sigue atada sólo a loopback.');
+    console.log('   Arrancó antes de que existiera el token, y el bind se decide al arrancar.');
+    console.log('   Se arregla con:  instalar     (crea lo que falte y REINICIA)');
+  } else if (viva && hayToken && ufw === false) {
+    console.log('');
+    console.log(`❌ La web está atada al puerto público, pero ufw bloquea el ${PUERTO}.`);
+    console.log('   Se arregla con:  instalar');
+  }
   console.log(`log que lee   : ${DATOS}${hayDatos ? '' : '  ⚠ todavía no tiene mensajes/'}`);
   if (viva) {
     const n = esperaAQueConteste();
@@ -236,7 +322,10 @@ switch (orden) {
     break;
   }
   case 'instalar': process.exit(instalar());
-  case 'arrancar': console.log(sh(`sudo -n systemctl start ${UNIDAD}`) || '▶️ arrancada'); estado(); break;
+  // ⚠ `restart` y NO `start`: sobre una unidad ya activa, `start` no hace nada —y
+  // lo normal aquí es que esté activa—, así que «arrancar» no recogía ni el token
+  // ni el código nuevo. Medido el 2026-09-15: se pulsó tres veces sin efecto.
+  case 'arrancar': console.log(sh(`sudo -n systemctl restart ${UNIDAD}`) || '▶️ arrancada (reinicio)'); estado(); break;
   case 'parar': console.log(sh(`sudo -n systemctl stop ${UNIDAD}`) || '⏹️ parada'); break;
   case 'log': console.log(sh(`journalctl -u ${UNIDAD} -n 40 -o cat --no-pager`)); break;
   default:

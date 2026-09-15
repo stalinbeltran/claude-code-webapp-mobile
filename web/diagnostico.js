@@ -66,11 +66,12 @@ export function explicarFallo(e, que, origen) {
     `vivo: no he podido preguntárselo.\n` +
     `\n` +
     `Las dos causas, en este orden:\n` +
-    `1. Tailscale está apagado en este móvil. Enciéndelo y recarga — es la más ` +
-    `común con diferencia, y no hay que tocar nada más.\n` +
-    `2. La máquina se rehízo y CAMBIÓ DE NOMBRE en la tailnet, así que esta ` +
-    `dirección apunta a un server que ya no existe. Pide la de ahora por ` +
-    `Telegram con "/use cweb" y luego "url", y escríbela aquí abajo: se guarda ` +
-    `en este móvil y la app salta sola a partir de ahora. NO hace falta ` +
-    `reinstalarla.`;
+    `1. La máquina se rehízo. Es la más común con diferencia: el server es ` +
+    `desechable, y al renacer cambia la IP Y el token, así que esta dirección ` +
+    `apunta a algo que ya no existe. Pide la de ahora por Telegram con ` +
+    `"/use cweb" y luego "url", y pégala aquí abajo TAL CUAL, con su "?t=": se ` +
+    `guarda en este móvil y la app salta sola a partir de ahora. NO hace falta ` +
+    `reinstalarla.\n` +
+    `2. El server está encendido pero la web no. Desde Telegram, "/use cweb" y ` +
+    `luego "estado" dice a qué está atada y si el cortafuegos la deja pasar.`;
 }

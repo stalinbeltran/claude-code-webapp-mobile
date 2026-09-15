@@ -9,7 +9,7 @@
 //
 // Así que: se intenta la red **siempre**; la caché sólo entra cuando la red
 // falla, que es el caso para el que existe (el metro, el ascensor, el móvil sin
-// Tailscale un momento). Y cada respuesta buena refresca la copia.
+// cobertura un momento). Y cada respuesta buena refresca la copia.
 //
 // ⚠ Y NO se cachea `/api/`: los datos siempre vienen del servidor. Enseñar una
 // conversación de ayer como si fuera de ahora es exactamente lo que el aviso de

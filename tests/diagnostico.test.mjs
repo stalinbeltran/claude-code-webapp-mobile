@@ -44,10 +44,17 @@ test('el mensaje avisa de que lo que se ve viene de la CACHÉ', () => {
     'que la app abra bien es lo que convence de que el servidor está ahí');
 });
 
-test('da las dos causas reales, y la del nombre es la que costó el día', () => {
+// ⚠ Las dos causas CAMBIARON el 2026-09-15, y por eso este test cambió con
+// ellas: sin Tailscale, «el móvil fuera de la tailnet» ya no puede pasar, y
+// mandar a encenderlo era mandar a arreglar algo que no existe. Hoy la causa
+// cara es que el server se rehízo — y lo que se lleva por delante NO es sólo el
+// nombre: la IP y el token cambian los dos, así que la dirección guardada deja
+// de valer entera y hay que pegar la nueva CON su `?t=`.
+test('da las dos causas reales, y la primera es que el server se rehízo', () => {
   const m = explicarFallo(new SinRed(new TypeError('Failed to fetch')), 'leer', 'https://x');
-  assert.match(m, /Tailscale/, 'causa 1: el móvil fuera de la tailnet');
-  assert.match(m, /CAMBI[ÓO] DE NOMBRE|cambió de nombre/i, 'causa 2: la máquina se rehízo');
+  assert.doesNotMatch(m, /Tailscale/i, 'ya no existe: mandar a encenderlo es mandar a la nada');
+  assert.match(m, /se rehizo|se rehízo/i, 'causa 1: la máquina es desechable');
+  assert.match(m, /token|\?t=/i, 'y que el TOKEN cambia con ella, no sólo la dirección');
   assert.match(m, /cweb/, 'y cómo conseguir la dirección de ahora, desde Telegram');
 });
 

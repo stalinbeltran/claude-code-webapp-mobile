@@ -379,7 +379,26 @@ export function arrancar() {
     return server;
   };
 
-  const hayToken = Boolean(token({ env: process.env, raizRepo: RAIZ }));
+  // ⚠⚠ EL TOKEN SE CREA AQUÍ SI FALTA, Y ESO ES UNA DECISIÓN DEL DUEÑO
+  // (2026-09-15: «el token se crea nuevo siempre»).
+  //
+  // Antes esto era `token(...)` a secas: sin token, loopback y a esperar a que
+  // alguien corriera `cweb instalar`. El problema es que eso convierte «llegar
+  // desde el móvil» en algo que depende de que un paso del aprovisionamiento
+  // haya corrido — y el 2026-09-15 no corrió (o falló sin dejar rastro: el log
+  // de provisión no sobrevive), así que el dev nació atado a loopback y ningún
+  // mando lo arreglaba. Creándolo aquí, el arranque es el único momento que
+  // decide, y no puede llegar sin token.
+  //
+  // ⚠ Esto NO afloja la puerta, que es lo que habría que mirar antes de tocarlo:
+  // la invariante sigue siendo «puerto público SI Y SÓLO SI hay token», y lo que
+  // cambia es que el token ya no puede faltar. Quien quiera la máquina cerrada
+  // de verdad tiene el cortafuegos, que es el freno que sí decide quién llega.
+  //
+  // ⚠ Y `crear` sólo aquí: `tokenVigente()` (cada petición) y `cweb url`/`estado`
+  // siguen SIN crear nada. Quien pregunta no puede cambiar la respuesta.
+  const habiaToken = Boolean(token({ env: process.env, raizRepo: RAIZ }));
+  const hayToken = Boolean(token({ env: process.env, raizRepo: RAIZ, crear: true }));
   const { escuchar, rechazadas } = direccionesDeEscucha({ env: process.env, hayToken });
 
   for (const { dir, motivo } of rechazadas) {
@@ -392,11 +411,16 @@ export function arrancar() {
     // ⚠ El token NO se imprime, ni aquí ni en un error: el log de esta unidad lo
     // lee `cweb log` desde Telegram. La URL con el token la da `cweb url`, que es
     // un comando que se pide, no algo que quede escrito en un journal.
+    // ⚠ El token NO se imprime, ni aquí ni en un error: el log de esta unidad lo
+    // lee `cweb log` desde Telegram. Se dice que se ha creado, no cuál es.
+    if (!habiaToken) console.log('   🔑 No había token: he creado uno nuevo para esta máquina.');
     console.log('   Puerta: hace falta el token (`?t=…`) salvo desde 127.0.0.1.');
     console.log('   La URL para el móvil:  node scripts/cweb.mjs url');
   } else {
-    console.log('   SIN token: sólo escucho en loopback, así que desde el móvil NO se llega.');
-    console.log('   Crea la puerta y ábrelo con:  node scripts/cweb.mjs instalar');
+    // Sólo se llega aquí si el token no se pudo ni crear (disco lleno, HOME sin
+    // permiso). Es un fallo de verdad, y por eso lo dice como tal.
+    console.log('   ❌ SIN token y no he podido crear uno: sólo escucho en loopback.');
+    console.log('   Mira si se puede escribir en ~/.config/  y luego:  node scripts/cweb.mjs instalar');
   }
 
   return servidores[0];

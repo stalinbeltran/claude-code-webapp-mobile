@@ -85,7 +85,7 @@ export function normalizarDireccion(texto) {
  * la dirección nueva es `http://`. El navegador **bloquea ese `fetch` por
  * contenido mixto**: la petición ni sale a la red. O sea que `contesta()`
  * devuelve `false` **sin haber preguntado nada**, y el aviso de «no he conseguido
- * alcanzar …» manda a revisar Tailscale y la dirección, que están las dos bien.
+ * alcanzar …» manda a revisar la dirección, que está bien.
  *
  * Es el `NO SÉ` del freno del coordinador, aquí: **no poder comprobar no es haber
  * comprobado que no**, y confundirlos manda a arreglar lo que no está roto.
