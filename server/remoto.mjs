@@ -27,7 +27,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync,
-  unlinkSync, writeFileSync, mkdtempSync } from 'node:fs';
+  unlinkSync, writeFileSync, mkdtempSync, utimesSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { encolarEnvio } from './datos.mjs';
@@ -141,6 +141,9 @@ export function crearEspejo({ raiz, env = process.env, log = console.log, buscar
             if (!statSync(join(src, f)).isFile()) continue;
             vistos.add(f);
             ponerSiCambia(join(raiz, sub, f), readFileSync(join(src, f)));
+            // La hora del DEV, no la de la copia: la lista ordena por ella (más reciente arriba).
+            const { atime, mtime } = statSync(join(src, f));
+            try { utimesSync(join(raiz, sub, f), atime, mtime); } catch { /* da igual */ }
           }
         }
         // sessions/ y executors/ son ESTADO: lo que el dev ya no tiene, aquí tampoco
