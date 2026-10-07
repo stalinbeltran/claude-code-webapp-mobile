@@ -165,6 +165,12 @@ Atenuantes reales: el fichero **no se commitea** (va a `.gitignore`, como el
 resto de `data/`) y no sale de la máquina. Agravante: **se sirve por HTTP** a un
 navegador y se queda cacheado en el móvil.
 
+⚠ **Actualizado el 2026-10-07**: el atenuante «no sale de la máquina» ya no vale tal cual.
+El fichero sigue sin commitearse, pero una foto **redactada y pasada por la rejilla** del
+archivador viaja al almacén (`telegram-coordinator/scripts/estado-por-tema.mjs`) para que
+la web del dev siguiente enseñe la conversación anterior. La redacción al escribir sigue
+siendo la primera barrera; la rejilla al fotografiar, la segunda.
+
 ⚠ Y esto **no estrena el problema**, que es lo que salió al verificar el plan:
 `data/buffer/` ya guarda texto tuyo sin redactar —y el pegado caducado se
 **aparta**, no se borra— y `data/repeticiones/` guarda la frase de `repetir`. O

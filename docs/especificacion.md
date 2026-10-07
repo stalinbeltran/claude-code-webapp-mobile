@@ -213,6 +213,15 @@ No es solo higiene de disco: el log contiene todo lo que Claude dijo, incluidas
 salidas de shell y rutas. `data/mensajes/` va al `.gitignore` como el resto del
 estado efímero, y la purga acota cuánto hay que perder si alguien entra.
 
+⚠ **Desde el 2026-10-07 el log SÍ sobrevive a rehacer el dev, por el almacén.** El fichero
+sigue en `.gitignore`; lo que viaja es una **foto redactada y pasada por la rejilla** que el
+coordinador deja en `foveal-vision-data/coordinador/<máquina>/` y que el dev nuevo restaura
+en su `post`, fusionando por `id` y con una **línea frontera** de `sistema` por tema
+(`origen: "restaurar"`, que esta web ya enseña como cualquier mensaje de sistema). El
+contrato sigue donde su productor, `telegram-coordinator/docs/log-de-mensajes.md`; el
+porqué y lo descartado, en
+`telegram-coordinator/docs/conversaciones-sobreviven-al-dev-2026-10-06.md`.
+
 ## Orden de implementación
 
 1. **`publicar()` + el log.** Telegram pasa a ser un suscriptor. Sin web todavía.
