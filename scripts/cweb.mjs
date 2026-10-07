@@ -26,7 +26,9 @@ const PUERTO = ENV.CWEB_PORT ?? '8020';
 /** El `data/` del coordinador: de dónde sale el log que esta web lee.
  *  Se DECLARA con `CWEB_DATA_DIR`; el defecto es el sitio de siempre, y si no
  *  está, se dice — nunca se sirve un log vacío como si no hubiera conversaciones. */
-const DATOS = process.env.CWEB_DATA_DIR
+const DATOS = ENV.CWEB_REMOTO === '1'
+  ? (ENV.CWEB_ESPEJO || join(homedir(), '.local', 'share', 'claude-web', 'espejo'))   // modo remoto: el espejo del dev
+  : process.env.CWEB_DATA_DIR
   || join(process.env.COORD_HOME || join(homedir(), 'src', 'telegram-coordinator'), 'data');
 
 const sh = (cmd) => { try { return execSync(cmd, { encoding: 'utf8', timeout: 20000 }).trim(); } catch (e) { return (e.stdout || '') + (e.stderr || ''); } };
