@@ -319,6 +319,15 @@ del server.** Decidido:
 **Decisión: sólo `dev`.** No va al mini. Coherente con P3: el mini es quien la
 **relanza**, no quien la sirve.
 
+⚠⚠ **REVOCADA el 2026-10-07 por el dueño:** *«que siempre sea el mini el que tenga el
+claude web. Así sólo trato con un app»*. Desde ese día la web vive **sólo en el mini**, en
+**modo remoto** (`server/remoto.mjs`, `cweb instalar --remoto`): copia el historial del dev
+por SSH cada 3 s, o la foto del almacén si no hay dev, y reenvía lo que escribas a
+`data/entrada` del dev; sin dev se niega y lo dice. Probado ese día en Chrome contra el mini:
+la conversación sale igual que en la web del dev, un mensaje escrito en el mini lo contestó
+claude del dev en 24 s, y sin dev la app avisa y no envía nada. El enlace se pide al bot
+Lanzador (`/use cweb` → `url`) y **ya no cambia al rehacer el dev**.
+
 ## P13 · ¿Se puede instalar en el móvil, y es seguro el acceso directo?
 
 **Sí se puede, y sí es seguro — pero con Tailscale, no con token+ufw.** El dueño
