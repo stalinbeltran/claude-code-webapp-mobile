@@ -68,13 +68,14 @@ export async function buscarDev(env, fetchFn = fetch) {
     { headers: { Authorization: `Bearer ${env.DO_TOKEN}` }, signal: AbortSignal.timeout(10_000) });
   if (!r.ok) throw new Error(`la API de DigitalOcean contestó ${r.status}`);
   const { droplets = [] } = await r.json();
-  return elegirDev(droplets);
+  return elegirDev(droplets, env.CWEB_DEV_ETIQUETA || 'atendida');
 }
 
 /** Puro, para el test: atendida y no control; el más reciente. */
-export function elegirDev(droplets) {
+// `etiqueta` es configurable (CWEB_DEV_ETIQUETA) para poder probar el caso «sin dev» con el dev vivo.
+export function elegirDev(droplets, etiqueta = 'atendida') {
   const cands = droplets
-    .filter((d) => (d.tags ?? []).includes('atendida') && !(d.tags ?? []).includes('control'))
+    .filter((d) => (d.tags ?? []).includes(etiqueta) && !(d.tags ?? []).includes('control'))
     .filter((d) => d.status === 'active')
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   const d = cands[0];
