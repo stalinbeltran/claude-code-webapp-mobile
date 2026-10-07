@@ -10,7 +10,7 @@
 // Aquí se enciende, se apaga, y se pide el enlace.
 
 import { execFileSync, execSync } from 'node:child_process';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -99,6 +99,14 @@ function esperaAQueConteste(segundos = 8) {
  */
 function instalar() {
   const nuevoToken = process.argv.includes('--token-nuevo');
+  // --remoto: esta máquina (el mini) sirve la web y el coordinador vive en el dev. Se deja
+  // en el .env del repo, que el servidor lee al arrancar; idempotente.
+  if (process.argv.includes('--remoto')) {
+    const f = join(RAIZ, '.env');
+    const ya = existsSync(f) ? readFileSync(f, 'utf8') : '';
+    if (!/^CWEB_REMOTO=1$/m.test(ya)) writeFileSync(f, ya + (ya && !ya.endsWith('\n') ? '\n' : '') + 'CWEB_REMOTO=1\n');
+    console.log('🛰  Modo remoto: la web lee el historial del dev (o del almacén si no hay dev) y le reenvía lo que escribas.');
+  }
   if (nuevoToken) {
     // Rotar es borrar y volver a crear: el token vive en un fichero 0600.
     try { execFileSync('rm', ['-f', FICHERO_TOKEN]); } catch { /* no estaba */ }

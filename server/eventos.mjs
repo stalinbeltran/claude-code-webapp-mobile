@@ -42,7 +42,8 @@ export function huella(raiz) {
     sesiones,
     // `visto` no entra: cambia cada 15 s aunque no pase nada, y eso despertaría
     // al navegador sin motivo. Lo que importa es si el bot está vivo y qué atiende.
-    coordinador: { vivo: l.vivo, hay: l.hay, turnos: Object.keys(l.turnos).sort() },
+    coordinador: { vivo: l.vivo, hay: l.hay, turnos: Object.keys(l.turnos).sort(),
+      ...(l.remoto ? { remoto: { dev: l.remoto.dev, fuente: l.remoto.fuente, error: l.remoto.error } } : {}) },
   });
 }
 

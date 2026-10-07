@@ -43,6 +43,9 @@ import { homedir } from 'node:os';
 import { listarSesiones, leerMensajes, leerLatido, encolarEnvio, ejecutorDe, PAGINA } from './datos.mjs';
 import { crearVigilante } from './eventos.mjs';
 import { autorizado, cookieDe, COOKIE, esLocal, token } from './puerta.mjs';
+import { conEnvDelRepo } from './puerta.mjs';
+import { remotoActivo, crearEspejo } from './remoto.mjs';
+import { mkdirSync } from 'node:fs';
 
 /** ⚠ NO se toca sin leer la cabecera. Ver `tests/servidor.test.mjs`. */
 export const HOST = '127.0.0.1';
@@ -138,6 +141,15 @@ export const PUERTO = Number(process.env.CWEB_PORT ?? 8020);
  * @returns {{ raiz: string } | { error: string }}
  */
 export function raizDatos(env = process.env, casa = homedir()) {
+  // MODO REMOTO (la web en el mini): el «data/» es el ESPEJO que rellena server/remoto.mjs.
+  // Se crea si falta: está vacío hasta la primera vuelta, y eso es un estado normal.
+  if (remotoActivo(env)) {
+    // ⚠ CWEB_ESPEJO y NO DATA_DIR: la unidad de `cweb instalar` pone DATA_DIR al data/ del
+    // coordinador de ESTA máquina, y en el mini ése es el del bot Lanzador, no el del dev.
+    const raiz = resolve(env.CWEB_ESPEJO || join(casa, '.local', 'share', 'claude-web', 'espejo'));
+    mkdirSync(join(raiz, 'mensajes'), { recursive: true });
+    return { raiz, remoto: true };
+  }
   if (env.DATA_DIR) {
     const raiz = resolve(env.DATA_DIR);
     return existsSync(raiz) ? { raiz } : { error: `DATA_DIR apunta a "${raiz}", que no existe.` };
@@ -199,7 +211,7 @@ function tokenVigente() {
   return _tok.valor;
 }
 
-export function crearServidor(raiz, vigilante = crearVigilante(raiz)) {
+export function crearServidor(raiz, vigilante = crearVigilante(raiz), remoto = null) {
   const server = createServer((req, res) => {
     const url = new URL(req.url, `http://${HOST}`);
 
@@ -281,6 +293,14 @@ export function crearServidor(raiz, vigilante = crearVigilante(raiz)) {
       req.on('end', () => {
         let texto;
         try { texto = JSON.parse(crudo).texto; } catch { return json(res, 400, { error: 'JSON inválido' }); }
+        if (remoto) {
+          // Modo remoto: el mensaje va al dev por SSH, o se niega si no hay dev (409).
+          return remoto.enviar(decodeURIComponent(m[1]), texto).then((r) => {
+            if (r.sinDev) return json(res, 409, r);
+            if (r.error) return json(res, 400, r);
+            json(res, 202, { ...r, aviso: `enviado al dev ${r.dev}: lo atiende enseguida` });
+          }, (e) => json(res, 500, { error: `No pude enviarlo: ${e.message}` }));
+        }
         const r = encolarEnvio(raiz, decodeURIComponent(m[1]), texto);
         if (r.error) return json(res, 400, r);
         // 202 y no 200: el turno NO ha corrido todavía. Puede tardar minutos
@@ -350,7 +370,9 @@ function estatico(res, ruta) {
 
 /** Arranque de verdad. Se niega si no sabe dónde está el log. */
 export function arrancar() {
-  const r = raizDatos();
+  // El entorno MÁS el .env del repo: ahí deja `cweb instalar --remoto` el CWEB_REMOTO=1.
+  const env = conEnvDelRepo(RAIZ);
+  const r = raizDatos(env);
   if ('error' in r) {
     console.error(`❌ ${r.error}`);
     process.exit(2);
@@ -359,10 +381,15 @@ export function arrancar() {
   // serían dos watchers y dos sondeos sobre lo mismo.
   const vigilante = crearVigilante(r.raiz);
   const servidores = [];
+  const remoto = r.remoto ? crearEspejo({ raiz: r.raiz, env }) : null;
+  if (remoto) {
+    remoto.arrancar();
+    console.log(`🛰  Modo REMOTO: copio el historial del dev cada pocos segundos (o del almacén si no hay dev) a ${r.raiz}`);
+  }
 
   /** Ata una dirección. Nunca tumba el proceso: con loopback vivo la app sirve. */
   const atar = (host, obligatoria) => {
-    const server = crearServidor(r.raiz, vigilante);
+    const server = crearServidor(r.raiz, vigilante, remoto);
     server.on('error', (e) => {
       console.error(`❌ No pude atar ${host}:${PUERTO}: ${e.message}`);
       if (e.code === 'EADDRINUSE') console.error(`   Ese puerto ya está ocupado. Prueba CWEB_PORT=<otro>.`);

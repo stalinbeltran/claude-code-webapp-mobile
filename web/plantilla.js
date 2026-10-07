@@ -114,13 +114,13 @@ export const PLANTILLA = `
       <div class="fila-caja">
       <textarea
         v-model="borrador"
-        :disabled="enviando || !ejecutor.nombre"
+        :disabled="enviando || (!ejecutor.nombre && !sinDev)"
         rows="1"
         :placeholder="ejecutor.nombre ? 'Escribe a ' + ejecutor.nombre + '…' : 'Sin sesión abierta en este tema'"
         @keydown.enter.exact.prevent="enviar"
         @input="crecer"
         ref="caja"></textarea>
-      <button class="enviar" :disabled="!borrador.trim() || enviando || !ejecutor.nombre" @click="enviar">
+      <button class="enviar" :disabled="!borrador.trim() || enviando || (!ejecutor.nombre && !sinDev)" @click="enviar">
         {{ enviando ? '…' : 'Enviar' }}
       </button>
       </div>

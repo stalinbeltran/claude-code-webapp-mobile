@@ -142,6 +142,15 @@ export function leerMensajes(raiz, sesion, { desde = null, limite = PAGINA } = {
  * @returns {{vivo: boolean, hay: boolean, visto: string|null, turnos: object}}
  */
 export function leerLatido(raiz, ahora = Date.now()) {
+  // En modo remoto (la web en el mini) el espejo deja remoto.json: de dónde sale lo que ves
+  // y si hay dev. Viaja con el latido para que la lista y el SSE lo digan igual.
+  let remoto;
+  try { remoto = JSON.parse(readFileSync(join(raiz, 'remoto.json'), 'utf8')); } catch { remoto = undefined; }
+  const base = leerLatidoCrudo(raiz, ahora);
+  return remoto ? { ...base, remoto } : base;
+}
+
+function leerLatidoCrudo(raiz, ahora) {
   const f = join(raiz, 'coordinador.json');
   if (!existsSync(f)) {
     // «No hay latido» NO es «está caído»: también es un coordinador que todavía

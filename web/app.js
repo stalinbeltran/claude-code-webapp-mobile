@@ -90,6 +90,16 @@ createApp({
     const avisoCoordinador = computed(() => {
       const c = coordinador.value;
       if (!c.consultado) return '';   // no se le ha podido preguntar: el 🔴 de red ya lo dice
+      // Modo remoto (la web en el mini): lo primero es si HAY dev.
+      if (c.remoto && !c.remoto.dev) {
+        return c.remoto.error && /DO_TOKEN|API/.test(c.remoto.error)
+          ? `⚠ No sé si hay dev (${c.remoto.error}). Lo que ves es la última copia guardada.`
+          : '📴 No hay dev ahora mismo. Ves la última copia guardada en el almacén. ' +
+            'Lo que escribas no se puede enviar: no hay claude que lo atienda.';
+      }
+      if (c.remoto?.dev && c.remoto.error) {
+        return `⚠ El dev ${c.remoto.dev.nombre} existe pero no contesta (${c.remoto.error}). Ves lo último que llegó.`;
+      }
       if (c.vivo) return '';
       if (!c.hay) return '⚠ No sé si el bot está vivo: este coordinador todavía no escribe latido. ' +
         'Lo que ves puede estar al día o no.';
@@ -136,6 +146,8 @@ createApp({
     }
 
     const ejecutor = ref({ nombre: null, registra: null });
+    /** Modo remoto sin dev: se puede escribir, y el servidor contesta que no hay a quién mandarlo. */
+    const sinDev = computed(() => Boolean(coordinador.value.remoto && !coordinador.value.remoto.dev));
 
     /**
      * El aviso de la caja. Los dos casos que hay que decir ANTES de escribir, no
@@ -146,6 +158,7 @@ createApp({
      */
     const avisoEjecutor = computed(() => {
       const e = ejecutor.value;
+      if (sinDev.value) return '';   // el aviso de arriba ya lo dice, y mejor
       if (!e.nombre) return '⚠ Este tema no tiene ninguna sesión abierta. ' +
         'Ábrela desde Telegram con /use c y vuelve.';
       if (e.registra === false) return `⚠ Aquí atiende «${e.nombre}», y sus respuestas ` +
@@ -324,6 +337,7 @@ createApp({
           coordinador.value = {
             ...coordinador.value, consultado: true,
             vivo: d.coordinador.vivo, hay: d.coordinador.hay,
+            ...(d.coordinador.remoto ? { remoto: d.coordinador.remoto } : {}),
             turnos: Object.fromEntries((d.coordinador.turnos ?? []).map((s) => [s, true])),
           };
           if (abierta.value) {
@@ -350,7 +364,7 @@ createApp({
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
       coordinador, avisoCoordinador, pendienteAqui,
-      borrador, enviando, caja, enviar, crecer, ejecutor, avisoEjecutor,
+      borrador, enviando, caja, enviar, crecer, ejecutor, avisoEjecutor, sinDev,
       verDireccion, direccionEscrita, direccionGuardada, probando,
       errorDireccion, puedeForzar, usarDireccion, olvidarServidor,
       origenActual: location.origin,
