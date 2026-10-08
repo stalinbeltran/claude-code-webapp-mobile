@@ -170,6 +170,7 @@ test('GET /api/sesiones lista las conversaciones, con su nombre derivado', async
     assert.equal(x.nombre, 'Tema 7', 'el nombre se DERIVA del id: nada que guardar (P9)');
     assert.equal(x.mensajes, 7);
     assert.equal(x.ultimo.autor, 'usuario');
+    assert.match(x.ultimo.id, /^m/, 'con su id: la app lo compara con lo leído para marcar «nuevo»');
     assert.ok(x.ultimo.extracto.length <= 91, 'el extracto va sin markdown y acotado');
   } finally { await s.cerrar(); }
 });

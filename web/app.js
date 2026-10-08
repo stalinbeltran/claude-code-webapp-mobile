@@ -7,12 +7,14 @@
 // `bypassPermissions`. Dejar pasar HTML crudo de ahí es abrir XSS en tu propia
 // consola de shell remoto. Tiene test.
 
-import { createApp, ref, computed, onMounted } from './vendor/vue.esm-browser.prod.js';
+import { createApp, ref, computed, onMounted, nextTick } from './vendor/vue.esm-browser.prod.js';
 import { crearRenderer } from './markdown.js';
 import { PLANTILLA } from './plantilla.js';
 import { SinRed, explicarFallo } from './diagnostico.js';
 import { ESCAPE, decidirArranque, leerGuardada, guardarDireccion,
          olvidarDireccion, normalizarDireccion, sePuedeProbar } from './direccion.js';
+import { leerAbierta, guardarAbierta, leerLeido, marcarLeido, primerNoLeido, faltaAtras,
+         tieneNoLeido, hashDe, aReabrir } from './lectura.js';
 
 // ⚠⚠ EL SALTO VA ANTES DE MONTAR NADA, y a propósito: si esta app se abrió desde
 // un origen que ya no sirve (la PWA instalada guarda un `start_url` fijo), lo
@@ -121,17 +123,80 @@ createApp({
       } finally { cargando.value = false; }
     }
 
+    // ------------------------------------------------ dónde te quedaste
+    // Ver `lectura.js`. `corteLeido` es el primer mensaje sin leer AL ABRIR, y se
+    // queda fijo mientras la conversación siga abierta: si se moviera al leer, la
+    // marca de «sin leer» huiría por delante del dedo.
+    const corteLeido = ref(null);
+
+    /** Recordar qué está abierto, en el almacén y en la URL de esta pestaña. */
+    function recordarAbierta(sesion) {
+      guardarAbierta(window.localStorage, sesion);
+      try { history.replaceState(null, '', location.pathname + location.search + hashDe(sesion)); }
+      catch { /* sin history no se pierde nada más que el atajo */ }
+    }
+
+    /**
+     * Marca leído lo que ya se VIO entero: el último mensaje cuyo FINAL está por
+     * encima del borde de abajo (la caja de escribir, si está). Por el final y no
+     * por el principio: una respuesta larga de la que sólo se vio el título no
+     * está leída, y la próxima vez hay que volver a ella.
+     *
+     * ⚠ Sólo con la pestaña VISIBLE: un mensaje que llega con el móvil en el
+     * bolsillo no se ha leído aunque esté dentro de la ventana.
+     */
+    function marcarVistos() {
+      if (!abierta.value || document.visibilityState !== 'visible') return;
+      const pie = document.querySelector('footer');
+      const borde = pie ? pie.getBoundingClientRect().top : window.innerHeight;
+      const els = document.querySelectorAll('main [data-id]');
+      for (let i = els.length - 1; i >= 0; i--) {
+        if (els[i].getBoundingClientRect().bottom <= borde + 2) {
+          marcarLeido(window.localStorage, abierta.value, els[i].dataset.id);
+          return;
+        }
+      }
+    }
+    let marcaPendiente = false;
+    function alDesplazar() {
+      if (marcaPendiente) return;
+      marcaPendiente = true;
+      requestAnimationFrame(() => { marcaPendiente = false; marcarVistos(); });
+    }
+
+    /** Lleva el scroll al primer sin leer o, si no hay, al final. */
+    async function situar() {
+      await nextTick();
+      const el = corteLeido.value &&
+        document.querySelector(`main [data-id="${CSS.escape(corteLeido.value)}"]`);
+      if (el) el.scrollIntoView({ block: 'start' });
+      else window.scrollTo(0, document.body.scrollHeight);
+      marcarVistos();
+    }
+
     async function abrir(sesion) {
       abierta.value = sesion; mensajes.value = []; hayMas.value = false;
+      corteLeido.value = null;
       cargando.value = true; error.value = '';
+      recordarAbierta(sesion);
       try {
         const r = await api(`/api/sesiones/${encodeURIComponent(sesion)}/mensajes`);
         mensajes.value = r.mensajes; hayMas.value = r.hay_mas;
         ejecutor.value = r.ejecutor ?? { nombre: null, registra: null };
-        requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+        // Si lo primero sin leer queda antes de la página, se piden más hasta
+        // llegar. Con tope: la purga deja 300 por tema, así que 10 páginas de 50
+        // sobran, y un id raro no puede dejar esto pidiendo para siempre.
+        const leido = leerLeido(window.localStorage, sesion);
+        for (let i = 0; i < 10 && faltaAtras(mensajes.value, leido, hayMas.value); i++) {
+          const m = await api(`/api/sesiones/${encodeURIComponent(sesion)}` +
+            `/mensajes?desde=${encodeURIComponent(mensajes.value[0].id)}`);
+          mensajes.value = [...m.mensajes, ...mensajes.value]; hayMas.value = m.hay_mas;
+        }
+        corteLeido.value = primerNoLeido(mensajes.value, leido);
       } catch (e) {
         error.value = explicarFallo(e, 'leer esta conversación', location.origin);
       } finally { cargando.value = false; }
+      if (!error.value) await situar();
     }
 
     async function masAntiguos() {
@@ -303,7 +368,10 @@ createApp({
     }
 
     const volver = () => {
-      abierta.value = null; mensajes.value = []; borrador.value = ''; cargarLista();
+      marcarVistos();
+      abierta.value = null; mensajes.value = []; borrador.value = ''; corteLeido.value = null;
+      recordarAbierta(null);
+      cargarLista();
     };
 
     /** Traer sólo lo que falta de la conversación abierta, sin recargarla entera:
@@ -315,9 +383,13 @@ createApp({
       if (!nuevos.length) return;
       // Sólo se baja del todo si ya estabas abajo. Si estabas leyendo algo de
       // más arriba, un mensaje nuevo no puede robarte el sitio.
+      // ⚠ Y con la pestaña oculta tampoco: bajar solo dejaría lo nuevo «visto» por
+      // el scroll y, al volver, estarías debajo de lo que no has leído.
       const abajo = window.scrollY + window.innerHeight > document.body.scrollHeight - 120;
       mensajes.value = [...mensajes.value, ...nuevos];
-      if (abajo) requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+      if (abajo && document.visibilityState === 'visible') {
+        requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); marcarVistos(); });
+      }
     }
 
     /**
@@ -352,9 +424,20 @@ createApp({
       });
     }
 
-    onMounted(() => {
-      cargarLista();
+    onMounted(async () => {
+      window.addEventListener('scroll', alDesplazar, { passive: true });
+      document.addEventListener('visibilitychange', alDesplazar);
       escuchar();
+      await cargarLista();
+      // Reabrir donde estabas: el navegador del móvil descarta la pestaña y al
+      // volver la recarga desde cero (ver `lectura.js`).
+      const s = aReabrir({
+        hash: location.hash,
+        guardada: leerAbierta(window.localStorage),
+        existentes: sesiones.value.map((x) => x.sesion),
+      });
+      if (s) abrir(s);
+      else if (location.hash) recordarAbierta(null);
       // El service worker sólo sirve para que la app ABRA sin red; los datos
       // siempre vienen del servidor. Si el navegador no lo soporta —o no estamos
       // en un contexto seguro— no pasa nada: la app funciona igual.
@@ -368,7 +451,8 @@ createApp({
       verDireccion, direccionEscrita, direccionGuardada, probando,
       errorDireccion, puedeForzar, usarDireccion, olvidarServidor,
       origenActual: location.origin,
-      abrir, volver, masAntiguos, cuando, AUTOR,
+      abrir, volver, masAntiguos, cuando, AUTOR, corteLeido,
+      noLeido: (s) => tieneNoLeido(s, leerLeido(window.localStorage, s.sesion)),
       render: (t) => md.render(String(t ?? '')),
       esCorte: (m) => m.autor === 'sistema' && m.origen === 'creset',
     };

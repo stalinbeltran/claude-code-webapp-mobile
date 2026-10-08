@@ -408,3 +408,35 @@ delega en los scripts de Tailscale o levanta el túnel. La vuelta atrás es una 
 HTTPS válido en 0,38 s). El túnel con nombre y Access **no**, porque hace falta el
 dominio del dueño: `docs/pendiente-verificar.md` tiene los pasos.
 
+
+## P15 · Recordar la conversación abierta y abrir en lo no leído (2026-10-08)
+
+**Pedido por el dueño:** *«que la web app recuerde en el browser cuál fue la conversación
+actual»* (el navegador del móvil descarta la pestaña y al volver todo abría cerrado) y
+*«que el scroll se sitúe en el primer msg no leído»* (abría al final y había que subir).
+
+**Decisión: en el NAVEGADOR, no en el servidor** (`web/lectura.js`). «Leído» es de quien
+lee —un móvil y un portátil leen a ritmos distintos— y el servidor no sabe quién mira.
+`localStorage` es disco, así que sobrevive a que el navegador descarte la pestaña, que es
+el fallo. La conversación abierta va además en la URL (`#s=<sesión>`), que es lo que el
+navegador restaura al recargar. El servidor sólo añade el `id` de `ultimo` en
+`/api/sesiones`, para marcar «● nuevo» en la lista.
+
+**Las reglas, y todas tienen test (`tests/lectura.test.mjs`):**
+- se marca leído lo que se vio **hasta el final** (su borde de abajo por encima de la caja
+  de escribir) y **con la pestaña visible**; una respuesta larga de la que sólo se vio el
+  título sigue sin leer;
+- la marca **sólo avanza**: subir a releer no des-lee lo de después;
+- lo que escribiste **tú** nunca está sin leer;
+- una conversación **sin marca** (nunca abierta en esta app) abre por el final, como antes;
+- si lo no leído queda antes de la página cargada, se piden más (tope: 10 páginas);
+- una conversación guardada que ya no existe **no se reabre**.
+
+**Lo que se acepta:** `localStorage` es por origen; si la dirección del mini cambia, se
+pierde dónde estabas (no los mensajes).
+
+**Probado en Chrome 155 headless** (viewport de móvil, perfil persistente para simular la
+pestaña descartada): reabre al arrancar en `/` sin `#`, se sitúa en la marca «sin leer»
+justo bajo la cabecera, carga páginas hacia atrás si hace falta, baja solo con mensajes
+nuevos si estabas abajo, y «Atrás» olvida la conversación. **No probado:** un móvil real,
+y que no se marque leído con la pestaña oculta (headless no la oculta).

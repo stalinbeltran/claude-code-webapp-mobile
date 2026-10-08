@@ -15,7 +15,7 @@
 // conversación de ayer como si fuera de ahora es exactamente lo que el aviso de
 // «el bot parece parado» existe para evitar.
 
-const CACHE = 'armazon-v3';
+const CACHE = 'armazon-v4';
 
 // Lo mínimo para que la app arranque y pinte. Los datos NO están aquí.
 // ⚠⚠ UN MÓDULO NUEVO QUE NO ESTÉ AQUÍ ROMPE LA APP SIN RED, no la degrada:
@@ -25,7 +25,7 @@ const CACHE = 'armazon-v3';
 // Al añadir uno hay que subir CACHE, o el móvil se queda con el armazón viejo.
 const ARMAZON = [
   '/', '/app.js', '/estilo.css', '/markdown.js', '/plantilla.js', '/diagnostico.js',
-  '/direccion.js',
+  '/direccion.js', '/lectura.js',
   '/vendor/vue.esm-browser.prod.js', '/vendor/markdown-it.min.js',
   '/manifest.webmanifest', '/icono.svg',
 ];

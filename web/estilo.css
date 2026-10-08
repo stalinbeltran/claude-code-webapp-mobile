@@ -62,6 +62,9 @@ main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 .fila .arriba { display: flex; justify-content: space-between; gap: .8rem; }
 .fila .nombre { font-weight: 600; }
 .fila .cuando, .fila .cuantos { color: var(--tenue); font-size: .8rem; white-space: nowrap; }
+/* `display: block`: son <span> dentro de un <button>, y sin esto el extracto y
+   el contador salían pegados en una sola línea («…principal1 mensaje(s)»). */
+.fila .extracto, .fila .cuantos { display: block; }
 .fila .extracto {
   color: var(--tenue); font-size: .88rem; margin-top: .25rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -94,6 +97,19 @@ main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 .corte::before, .corte::after {
   content: ""; flex: 1; height: 1px; background: var(--aviso); opacity: .45;
 }
+/* Dónde empieza lo no leído. Mismo trazo que el corte, en el color de acento:
+   uno dice «aquí cambió el hilo», el otro «aquí te quedaste». */
+.sin-leer {
+  display: flex; align-items: center; gap: .7rem;
+  margin: 1.2rem 0 .8rem; color: var(--acento); font-size: .78rem;
+}
+.sin-leer::before, .sin-leer::after {
+  content: ""; flex: 1; height: 1px; background: var(--acento); opacity: .55;
+}
+/* Al saltar a un mensaje, que no quede debajo de la cabecera pegajosa: la marca
+   «sin leer» va justo antes y tiene que verse. */
+.msg, .corte { scroll-margin-top: 6rem; }
+.fila .nuevo { color: var(--acento); font-weight: 600; font-size: .8rem; }
 
 /* --------------------------------------------------------- markdown dentro */
 .md > :first-child { margin-top: 0; }

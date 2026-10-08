@@ -75,7 +75,7 @@ export const PLANTILLA = `
         </p>
         <button v-for="s in sesiones" :key="s.sesion" class="fila" @click="abrir(s.sesion)">
           <span class="arriba">
-            <span class="nombre">{{ s.nombre }}</span>
+            <span class="nombre">{{ s.nombre }}<span v-if="noLeido(s)" class="nuevo"> ● nuevo</span></span>
             <span class="cuando">{{ cuando(s.ultimo?.ts) }}</span>
           </span>
           <span class="extracto">{{ s.ultimo?.extracto || '(sin mensajes)' }}</span>
@@ -91,8 +91,10 @@ export const PLANTILLA = `
       <template v-if="abierta && !cargando">
         <button v-if="hayMas" class="mas" @click="masAntiguos">Cargar más antiguos</button>
         <template v-for="m in mensajes" :key="m.id">
-          <div v-if="esCorte(m)" class="corte">conversación reiniciada</div>
-          <div v-else class="msg" :class="m.autor">
+          <!-- Dónde empieza lo que no has leído. El scroll se sitúa aquí al abrir. -->
+          <div v-if="m.id === corteLeido" class="sin-leer">sin leer</div>
+          <div v-if="esCorte(m)" class="corte" :data-id="m.id">conversación reiniciada</div>
+          <div v-else class="msg" :class="m.autor" :data-id="m.id">
             <div class="quien">{{ AUTOR[m.autor] }} · {{ cuando(m.ts) }}<template v-if="m.origen !== 'telegram'"> · {{ m.origen }}</template></div>
             <div class="cuerpo md" v-html="render(m.texto)"></div>
           </div>

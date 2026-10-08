@@ -80,7 +80,7 @@ export function listarSesiones(raiz) {
       sesion,
       nombre: nombreDe(sesion),
       mensajes: mensajes.length,
-      ultimo: ultimo ? { ts: ultimo.ts, autor: ultimo.autor, extracto: extracto(ultimo.texto) } : null,
+      ultimo: ultimo ? { id: ultimo.id, ts: ultimo.ts, autor: ultimo.autor, extracto: extracto(ultimo.texto) } : null,
       // El mtime es el latido del fichero: sirve para ordenar aunque el log esté
       // vacío o ilegible, y no depende de que el contenido sea correcto.
       visto: statSync(ficheroDe(raiz, sesion)).mtimeMs,
