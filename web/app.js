@@ -167,10 +167,15 @@ createApp({
     /** Lleva el scroll al primer sin leer o, si no hay, al final. */
     async function situar() {
       await nextTick();
-      const el = corteLeido.value &&
-        document.querySelector(`main [data-id="${CSS.escape(corteLeido.value)}"]`);
-      if (el) el.scrollIntoView({ block: 'start' });
-      else window.scrollTo(0, document.body.scrollHeight);
+      // ⚠ `scrollTo` calculado y NO `scrollIntoView`: en móvil, cuando el destino
+      // no puede llegar arriba (la conversación se acaba antes), `scrollIntoView`
+      // desplaza además el visual viewport y se lleva la cabecera fuera de la
+      // pantalla. Visto en Chrome con emulación móvil el 2026-10-08.
+      const marca = corteLeido.value && document.querySelector('main .sin-leer');
+      if (marca) {
+        const cabecera = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+        window.scrollTo(0, window.scrollY + marca.getBoundingClientRect().top - cabecera - 8);
+      } else window.scrollTo(0, document.body.scrollHeight);
       marcarVistos();
     }
 

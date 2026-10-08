@@ -106,9 +106,6 @@ main { padding: .8rem; padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 .sin-leer::before, .sin-leer::after {
   content: ""; flex: 1; height: 1px; background: var(--acento); opacity: .55;
 }
-/* Al saltar a un mensaje, que no quede debajo de la cabecera pegajosa: la marca
-   «sin leer» va justo antes y tiene que verse. */
-.msg, .corte { scroll-margin-top: 6rem; }
 .fila .nuevo { color: var(--acento); font-weight: 600; font-size: .8rem; }
 
 /* --------------------------------------------------------- markdown dentro */
