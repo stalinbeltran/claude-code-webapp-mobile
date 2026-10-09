@@ -242,3 +242,17 @@ main { padding-bottom: .5rem; }
 .pista { font-size: .8rem; color: var(--tenue); line-height: 1.4; margin: 0; }
 .pista.tenue { font-size: .74rem; opacity: .8; word-break: break-all; }
 .error-linea { font-size: .82rem; color: #ffb4b4; line-height: 1.4; margin: 0; }
+
+/* ------------------------------------------------- envíos sin confirmar
+   Ver `borradores.js`. El texto va SELECCIONABLE (user-select) y con su
+   salto de línea: es la copia de seguridad cuando el portapapeles no deja. */
+.pendiente-envio {
+  width: 100%; font-size: .85rem;
+  background: rgba(240,180,41,.08); border: 1px dashed var(--aviso);
+  border-radius: 8px; padding: .4rem .6rem;
+}
+.pendiente-envio .quien { color: var(--aviso); font-size: .75rem; }
+.texto-pendiente {
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+  -webkit-user-select: text; max-height: 8rem; overflow-y: auto; margin: .25rem 0;
+}

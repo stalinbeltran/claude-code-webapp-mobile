@@ -15,6 +15,8 @@ import { ESCAPE, decidirArranque, leerGuardada, guardarDireccion,
          olvidarDireccion, normalizarDireccion, sePuedeProbar } from './direccion.js';
 import { leerAbierta, guardarAbierta, leerLeido, marcarLeido, primerNoLeido, faltaAtras,
          tieneNoLeido, hashDe, aReabrir } from './lectura.js';
+import { leerBorrador, guardarBorrador, leerPendientes, apuntarPendiente,
+         descartarPendiente, confirmarRecibidos } from './borradores.js';
 
 // ⚠⚠ EL SALTO VA ANTES DE MONTAR NADA, y a propósito: si esta app se abrió desde
 // un origen que ya no sirve (la PWA instalada guarda un `start_url` fijo), lo
@@ -184,9 +186,15 @@ createApp({
       corteLeido.value = null;
       cargando.value = true; error.value = '';
       recordarAbierta(sesion);
+      // Lo escrito y lo enviado sin confirmar vuelven ANTES de pedir nada: si el
+      // servidor no contesta, es justo cuando más falta verlo (ver `borradores.js`).
+      borrador.value = leerBorrador(window.localStorage, sesion);
+      pendientes.value = leerPendientes(window.localStorage, sesion);
+      requestAnimationFrame(crecer);
       try {
         const r = await api(`/api/sesiones/${encodeURIComponent(sesion)}/mensajes`);
         mensajes.value = r.mensajes; hayMas.value = r.hay_mas;
+        confirmar();
         ejecutor.value = r.ejecutor ?? { nombre: null, registra: null };
         // Si lo primero sin leer queda antes de la página, se piden más hasta
         // llegar. Con tope: la purga deja 300 por tema, así que 10 páginas de 50
@@ -241,6 +249,40 @@ createApp({
     const borrador = ref('');
     const enviando = ref(false);
     const caja = ref(null);
+    // Enviados que todavía no han vuelto en el log. Ver `borradores.js`.
+    const pendientes = ref([]);
+    const copiado = ref('');
+
+    /** Cada tecla va a disco: la pestaña puede morir sin avisar. */
+    function alEscribir() {
+      crecer();
+      if (abierta.value) guardarBorrador(window.localStorage, abierta.value, borrador.value);
+    }
+
+    /** Quita de los pendientes los que ya aparecen en la conversación. */
+    function confirmar() {
+      if (!abierta.value) return;
+      pendientes.value = confirmarRecibidos(window.localStorage, abierta.value, mensajes.value);
+    }
+
+    function descartar(p) {
+      pendientes.value = descartarPendiente(window.localStorage, abierta.value, p.ts);
+    }
+
+    /** Copiar al portapapeles; si el navegador no deja (http sin TLS), el texto
+     *  sigue seleccionable en la tarjeta, que es la garantía de verdad. */
+    async function copiar(p) {
+      try { await navigator.clipboard.writeText(p.texto); copiado.value = p.ts; }
+      catch { copiado.value = 'no:' + p.ts; }
+      setTimeout(() => { if (copiado.value.endsWith(p.ts)) copiado.value = ''; }, 2000);
+    }
+
+    /** Volver a mandar uno pendiente: se pone en la caja, no se envía a ciegas. */
+    function aCaja(p) {
+      borrador.value = p.texto;
+      alEscribir();
+      caja.value?.focus();
+    }
 
     /** La caja crece con el texto, hasta un tope. Una caja de una línea para una
      *  instrucción de diez es exactamente lo que hace que no la uses. */
@@ -262,6 +304,9 @@ createApp({
       if (!texto || enviando.value) return;
       enviando.value = true;
       error.value = '';
+      const sesion = abierta.value;
+      // Se apunta ANTES del POST: si la pestaña muere a mitad, ya está en disco.
+      const apuntado = apuntarPendiente(window.localStorage, sesion, texto);
       try {
         let r;
         try {
@@ -273,9 +318,17 @@ createApp({
         } catch (fallo) { throw new SinRed(fallo, 'enviar'); }
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || `${r.status}`);
-        borrador.value = '';
+        guardarBorrador(window.localStorage, sesion, '');
+        if (abierta.value === sesion) {
+          borrador.value = '';
+          pendientes.value = leerPendientes(window.localStorage, sesion);
+          confirmar();   // por si el SSE ya lo trajo antes que esta respuesta
+        }
         requestAnimationFrame(crecer);
       } catch (e) {
+        // Falló: sigue en la caja (y en su borrador), así que la tarjeta sobra.
+        const resto = descartarPendiente(window.localStorage, sesion, apuntado.ts);
+        if (abierta.value === sesion) pendientes.value = resto;
         error.value = e?.sinRed
           ? explicarFallo(e, 'enviarlo', location.origin) + '\n\nSigue escrito aquí abajo.'
           : `No pude enviarlo: ${e.message}. Sigue escrito aquí abajo.`;
@@ -374,7 +427,9 @@ createApp({
 
     const volver = () => {
       marcarVistos();
+      // El borrador NO se borra del disco: se queda para cuando vuelvas.
       abierta.value = null; mensajes.value = []; borrador.value = ''; corteLeido.value = null;
+      pendientes.value = [];
       recordarAbierta(null);
       cargarLista();
     };
@@ -392,6 +447,7 @@ createApp({
       // el scroll y, al volver, estarías debajo de lo que no has leído.
       const abajo = window.scrollY + window.innerHeight > document.body.scrollHeight - 120;
       mensajes.value = [...mensajes.value, ...nuevos];
+      confirmar();
       if (abajo && document.visibilityState === 'visible') {
         requestAnimationFrame(() => { window.scrollTo(0, document.body.scrollHeight); marcarVistos(); });
       }
@@ -452,7 +508,8 @@ createApp({
     return {
       sesiones, abierta, mensajes, hayMas, cargando, error, nombre,
       coordinador, avisoCoordinador, pendienteAqui,
-      borrador, enviando, caja, enviar, crecer, ejecutor, avisoEjecutor, sinDev,
+      borrador, enviando, caja, enviar, crecer, alEscribir,
+      pendientes, copiado, copiar, descartar, aCaja, ejecutor, avisoEjecutor, sinDev,
       verDireccion, direccionEscrita, direccionGuardada, probando,
       errorDireccion, puedeForzar, usarDireccion, olvidarServidor,
       origenActual: location.origin,

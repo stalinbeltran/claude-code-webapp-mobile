@@ -113,6 +113,18 @@ export const PLANTILLA = `
            siempre. Decirlo en el sitio donde escribes es lo que evita mandarle a
            otro ejecutor algo pensado para claude. -->
       <div v-if="avisoEjecutor" class="aviso-caja">{{ avisoEjecutor }}</div>
+      <!-- Lo enviado que todavía NO ha vuelto en la conversación. Se queda
+           visible y copiable hasta que aparezca: un 202 del servidor no es
+           una entrega (ver borradores.js). -->
+      <div v-for="p in pendientes" :key="p.ts" class="pendiente-envio">
+        <div class="quien">⏳ enviado {{ cuando(p.ts) }} · aún no aparece en la conversación</div>
+        <div class="texto-pendiente">{{ p.texto }}</div>
+        <div class="fila-botones">
+          <button class="secundario" @click="copiar(p)">{{ copiado === p.ts ? '✓ copiado' : copiado === 'no:' + p.ts ? 'selecciónalo a mano' : 'Copiar' }}</button>
+          <button class="secundario" @click="aCaja(p)">A la caja</button>
+          <button class="enlace" @click="descartar(p)">descartar</button>
+        </div>
+      </div>
       <div class="fila-caja">
       <textarea
         v-model="borrador"
@@ -120,7 +132,7 @@ export const PLANTILLA = `
         rows="1"
         :placeholder="ejecutor.nombre ? 'Escribe a ' + ejecutor.nombre + '…' : 'Sin sesión abierta en este tema'"
         @keydown.enter.exact.prevent="enviar"
-        @input="crecer"
+        @input="alEscribir"
         ref="caja"></textarea>
       <button class="enviar" :disabled="!borrador.trim() || enviando || (!ejecutor.nombre && !sinDev)" @click="enviar">
         {{ enviando ? '…' : 'Enviar' }}
